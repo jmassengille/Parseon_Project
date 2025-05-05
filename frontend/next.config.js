@@ -1,3 +1,5 @@
+const path = require('path');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -80,6 +82,7 @@ const nextConfig = {
   },
   // Add webpack configuration for better bundle optimization
   webpack: (config, { dev, isServer }) => {
+    config.resolve.alias['@'] = path.resolve(__dirname, 'src');
     // Optimize bundle size
     if (!dev && !isServer) {
       config.optimization.splitChunks = {

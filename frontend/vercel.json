@@ -7,6 +7,6 @@
     }
   ],
   "env": {
-    "NEXT_PUBLIC_API_URL": "https://parseon-backend.railway.app"
+    "NEXT_PUBLIC_API_URL": "https://api.parseon.tech"
   }
 } 
