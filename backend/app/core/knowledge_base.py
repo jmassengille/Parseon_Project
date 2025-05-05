@@ -441,7 +441,8 @@ class KnowledgeBase:
         section_lower = section.lower()
         
         for header in mitigation_headers:
-            match = re.search(f'(?i){header}:\s*(.*?)(?=\n\n|\Z)', section, re.DOTALL)
+            pattern = r'(?i)' + re.escape(header) + r':\s*(.*?)(?=\n\n|\Z)'
+            match = re.search(pattern, section, re.DOTALL)
             if match:
                 mitigation = match.group(1).strip()
                 break
