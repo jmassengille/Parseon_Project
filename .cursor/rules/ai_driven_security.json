@@ -1,0 +1,80 @@
+{
+    "name": "AI-Driven Security Analysis",
+    "description": "Enforces AI-driven security analysis patterns and prevents regression to hard-coded pattern matching",
+    "rules": [
+        {
+            "pattern": "pattern.*match|exact.*match|hard.*code",
+            "message": "Avoid hard-coded pattern matching. Use semantic analysis and context awareness instead.",
+            "severity": "error"
+        },
+        {
+            "pattern": "regex.*pattern|regular.*expression",
+            "message": "Regex patterns should only be used for basic text extraction, not for security analysis.",
+            "severity": "warning"
+        },
+        {
+            "pattern": "confidence.*=.*1\\.0|confidence.*=.*100",
+            "message": "Avoid hard-coded confidence scores. Use dynamic confidence calculation based on multiple factors.",
+            "severity": "error"
+        },
+        {
+            "pattern": "if.*pattern.*in.*code|if.*code.*contains.*pattern",
+            "message": "Avoid direct pattern matching. Use semantic similarity and context analysis instead.",
+            "severity": "error"
+        },
+        {
+            "pattern": "embeddings|semantic|context.*aware|dynamic.*analysis",
+            "message": "Good! Using AI-driven analysis patterns.",
+            "severity": "info"
+        }
+    ],
+    "required_components": [
+        {
+            "name": "semantic_analysis",
+            "description": "Must use semantic analysis for pattern matching",
+            "required_files": [
+                "backend/app/core/dynamic_analyzer.py",
+                "backend/app/core/knowledge_base.py"
+            ]
+        },
+        {
+            "name": "context_awareness",
+            "description": "Must implement context-aware analysis",
+            "required_files": [
+                "backend/app/core/dynamic_analyzer.py"
+            ]
+        },
+        {
+            "name": "dynamic_confidence",
+            "description": "Must use dynamic confidence calculation",
+            "required_files": [
+                "backend/app/core/dynamic_analyzer.py"
+            ]
+        }
+    ],
+    "documentation": {
+        "summary": "This rule set ensures that security analysis remains AI-driven and context-aware, preventing regression to hard-coded pattern matching.",
+        "guidelines": [
+            "Use semantic analysis for pattern matching",
+            "Implement context-aware analysis",
+            "Calculate confidence dynamically based on multiple factors",
+            "Avoid hard-coded patterns and rules",
+            "Use embeddings for similarity matching",
+            "Consider code context and relationships"
+        ],
+        "examples": {
+            "good": [
+                "Use semantic similarity for pattern matching",
+                "Calculate confidence based on multiple factors",
+                "Consider code context and relationships",
+                "Use embeddings for similarity analysis"
+            ],
+            "bad": [
+                "Hard-coded pattern matching",
+                "Exact string matching for security analysis",
+                "Fixed confidence scores",
+                "Direct pattern containment checks"
+            ]
+        }
+    }
+} 

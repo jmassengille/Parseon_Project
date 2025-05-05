@@ -1,0 +1,62 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Parseon is an AI security assessment tool specifically focused on detecting and preventing security vulnerabilities in AI-integrated applications.
+
+Development Workflow:
+1. Discussion Phase:
+   - Review proposed AI security feature/pattern
+   - Analyze potential edge cases and vulnerabilities
+   - Consider emerging AI security threats
+
+2. Best Practices Validation (as of 05/2025):
+   - Verify against latest AI security standards
+   - Review current LLM security patterns
+   - Validate against known AI attack vectors
+
+3. Incremental Implementation:
+   - Test-driven development for AI security patterns
+   - Iterative security pattern validation
+   - Comprehensive testing of AI component interactions
+
+Core Focus Areas:
+Dynamic AI Security Analysis:
+- Analyze AI components, prompts, and model interactions dynamically
+- Detect potential vulnerabilities in AI integration points
+- Focus on emerging threats specific to custom AI implementations and LLM usage
+
+AI-Specific Security Patterns:
+- Prompt injection and manipulation detection
+- Model security boundary validation
+- AI data flow security analysis
+- Input/output sanitization for AI components
+- Detection of unsafe model configurations
+
+Scalable AI Security Automation:
+- Automated detection of new AI security patterns
+- Dynamic updating of security checks based on emerging AI threats
+- Focus on AI-specific configuration validation
+- Efficient embedding generation and context retrieval for AI components
+
+AI Security Best Practices:
+- Keep updated with latest AI security vulnerabilities
+- Implement checks for secure AI model deployment
+- Validate AI component isolation and access controls
+- Monitor for AI-specific data leakage vectors
+
+Environment Setup:
+- Project runs in WSL (Windows Subsystem for Linux)
+- Python environment: Use `python3` command instead of `python`
+- Project root: /mnt/c/AI_Projects/Parseon
+- Virtual Environment: Activate with `source ~/projects/parseon_env/bin/activate`
+- Dependencies: All required packages listed in backend/requirements.txt
+
+Common Commands:
+- Activate environment: `source ~/projects/parseon_env/bin/activate`
+- Run tests: `python3 -m pytest tests/`
+- Install dependencies: `pip3 install -r backend/requirements.txt`
+Note: Always activate the parseon environment with `source ~/projects/parseon_env/bin/activate` before running any commands.
+
+The tool should remain focused exclusively on AI security aspects while being dynamic enough to adapt to new AI integration patterns and threats.

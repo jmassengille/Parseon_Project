@@ -1,0 +1,26 @@
+[build]
+builder = "nixpacks"
+# Use build.sh script for more control over the build process
+buildCommand = "pip install -r requirements.txt && chmod +x prestart.sh"
+
+[deploy]
+startCommand = "bash -c './prestart.sh && uvicorn main:app --host 0.0.0.0 --port $PORT'"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
+
+[service]
+name = "parseon-backend"
+internal_port = 8000
+auto_deploy = true
+
+# Specify proper environment variables
+[env]
+ENVIRONMENT = "production"
+NEXT_PUBLIC_ENABLE_MOCK_API = "false"
+NEXT_PUBLIC_API_URL = "https://parseon-backend.up.railway.app"
+
+[database]
+name = "parseon-db"
+engine = "postgresql" 
