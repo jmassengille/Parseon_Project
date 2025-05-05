@@ -806,6 +806,7 @@ const assessmentSchema = z.object({
     deployment: z.string().min(1, "Deployment details are required"),
     monitoring: z.string().min(1, "Monitoring setup is required"),
   }),
+  use_mock_data: z.boolean().optional(),
 });
 
 type AssessmentFormData = z.infer<typeof assessmentSchema>;
