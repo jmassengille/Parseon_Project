@@ -1,5 +1,4 @@
 const path = require('path');
-process.env.TS_NODE_PROJECT = path.join(__dirname, 'tsconfig.json');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
