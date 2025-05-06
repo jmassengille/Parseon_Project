@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-console.log('🔐 Running security fixes for frontend dependencies...');
+console.log('Running security fixes for frontend dependencies...');
 
 // Resolve the PrismJS vulnerability in react-syntax-highlighter
 try {
@@ -28,4 +28,4 @@ try {
 
 // Add any other security fixes here
 
-console.log('🛡️ Security fixes complete'); 
+console.log('Security checks complete'); 
