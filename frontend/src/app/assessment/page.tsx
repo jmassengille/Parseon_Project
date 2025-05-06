@@ -1,9 +1,11 @@
 'use client';
 
-import { Container, Box, Typography, Paper, Chip, Grid, LinearProgress } from '@mui/material';
+import { Container, Box, Typography, Paper, Chip, Grid, LinearProgress, Alert } from '@mui/material';
 import dynamic from 'next/dynamic';
 import { useState } from 'react';
-import { AssessmentResult, type AssessmentFormData, Finding as AssessmentFinding } from '@/types/assessment';
+import { SecurityAssessmentResult, AssessmentFormData } from '@/types/assessment';
+import { AssessmentService } from '@/services/assessment_service';
+import { mapFormDataToApiInput } from '@/lib/example-data';
 
 // Fix the import to use dynamic loading with default export
 const AssessmentForm = dynamic(() => import('@/components/AssessmentForm').then(mod => mod.default), { ssr: false });
@@ -15,10 +17,11 @@ interface DisplayFinding {
   title: string;
   description: string;
   recommendation: string;
-  validationStatus?: string;
+  validationStatus: string;
+  confidence: number;
 }
 
-const ResultsDisplay = ({ results }: { results: AssessmentResult }) => {
+const ResultsDisplay = ({ results }: { results: SecurityAssessmentResult }) => {
   const getSeverityColor = (severity: string) => {
     if (!severity) return 'default';
     
@@ -41,16 +44,12 @@ const ResultsDisplay = ({ results }: { results: AssessmentResult }) => {
     title: finding.title,
     description: finding.description,
     recommendation: finding.recommendation,
-    validationStatus: finding.validation_info?.validated ? 'validated' : 'unverified'
+    validationStatus: finding.validation_info?.validated ? 'validated' : 'unverified',
+    confidence: finding.confidence || 0
   })) || [];
 
-  // Create a score breakdown compatible with the display
-  const scoreBreakdown = {
-    code_quality: results.category_scores?.API_SECURITY?.score || 0,
-    security_config: results.category_scores?.CONFIGURATION?.score || 0,
-    architecture: results.category_scores?.PROMPT_SECURITY?.score || 0,
-    monitoring: results.category_scores?.ERROR_HANDLING?.score || 0,
-  };
+  // Create a score breakdown from category scores
+  const scoreBreakdown = results.category_scores || {};
 
   return (
     <Box sx={{ mt: 4 }}>
@@ -95,37 +94,54 @@ const ResultsDisplay = ({ results }: { results: AssessmentResult }) => {
               variant="outlined" 
             />
           </Box>
-          <Typography variant="body1">{results.project_name}</Typography>
+          <Typography variant="body1" gutterBottom>{results.project_name}</Typography>
+          <Typography variant="body2" color="text.secondary">Organization: {results.organization_name}</Typography>
         </Box>
 
         <Box sx={{ mb: 4 }}>
           <Typography variant="h5" gutterBottom>Security Score Breakdown</Typography>
           <Grid container spacing={2}>
-            {scoreBreakdown && Object.entries(scoreBreakdown).map(([key, value]) => (
-              <Grid item xs={12} sm={6} key={key}>
+            {Object.entries(scoreBreakdown).map(([category, data]) => (
+              <Grid item xs={12} sm={6} key={category}>
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                    {key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+                    {category.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
                   </Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <Box sx={{ flexGrow: 1 }}>
                       <LinearProgress 
                         variant="determinate" 
-                        value={value} 
+                        value={data.score} 
                         sx={{ 
                           height: 10, 
                           borderRadius: 5,
                           backgroundColor: 'grey.200',
                           '& .MuiLinearProgress-bar': {
                             borderRadius: 5,
-                            backgroundColor: value > 80 ? 'success.main' : value > 60 ? 'warning.main' : 'error.main',
+                            backgroundColor: data.score > 80 ? 'success.main' : data.score > 60 ? 'warning.main' : 'error.main',
                           }
                         }} 
                       />
                     </Box>
-                    <Typography variant="body2">{value}%</Typography>
+                    <Typography variant="body2">{data.score}%</Typography>
                   </Box>
                 </Box>
+              </Grid>
+            ))}
+          </Grid>
+        </Box>
+
+        <Box sx={{ mb: 4 }}>
+          <Typography variant="h5" gutterBottom>Priority Actions</Typography>
+          <Grid container spacing={2}>
+            {results.priority_actions?.map((action, index) => (
+              <Grid item xs={12} key={index}>
+                <Alert 
+                  severity={action.startsWith('[HIGH]') ? 'error' : action.startsWith('[MEDIUM]') ? 'warning' : 'info'}
+                  sx={{ '& .MuiAlert-message': { width: '100%' } }}
+                >
+                  {action}
+                </Alert>
               </Grid>
             ))}
           </Grid>
@@ -203,44 +219,39 @@ const ResultsDisplay = ({ results }: { results: AssessmentResult }) => {
                     bgcolor: 'background.default'
                   }}
                 >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-                    <Typography variant="h6">{finding.title}</Typography>
-                    <Chip 
-                      label={finding.severity} 
-                      color={getSeverityColor(finding.severity)} 
-                      size="small" 
-                    />
-                    <Chip 
-                      label={finding.category} 
-                      variant="outlined" 
-                      size="small" 
-                    />
-                    {finding.validationStatus && (
-                      <Chip
-                        icon={finding.validationStatus === 'validated' ? 
-                          <span style={{ fontSize: '18px' }}>✓</span> : 
-                          <span style={{ fontSize: '18px' }}>?</span>}
-                        label={finding.validationStatus === 'validated' ? 'Validated' : 'Unverified'} 
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+                    <Typography variant="h6" gutterBottom>{finding.title}</Typography>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Chip 
+                        label={finding.severity} 
+                        color={getSeverityColor(finding.severity)}
+                        size="small"
+                      />
+                      <Chip 
+                        label={finding.validationStatus} 
+                        color={finding.validationStatus === 'validated' ? 'success' : 'warning'}
                         variant="outlined"
                         size="small"
-                        sx={{ 
-                          bgcolor: finding.validationStatus === 'validated' ? 'rgba(46, 125, 50, 0.1)' : 'rgba(211, 47, 47, 0.1)',
-                          borderColor: finding.validationStatus === 'validated' ? 'success.light' : 'warning.light',
-                          color: finding.validationStatus === 'validated' ? 'success.dark' : 'warning.dark'
-                        }}
                       />
-                    )}
+                      <Chip 
+                        label={`${Math.round(finding.confidence * 100)}% confidence`}
+                        color="default"
+                        variant="outlined"
+                        size="small"
+                      />
+                    </Box>
                   </Box>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Category: {finding.category}
+                  </Typography>
                   <Typography variant="body1" paragraph>
                     {finding.description}
                   </Typography>
-                  <Typography variant="body1">
-                    <Box component="span" sx={{ color: 'text.secondary', fontWeight: 600 }}>
-                      Recommendation:
-                    </Box>{' '}
-                    <Box component="span" sx={{ color: 'text.primary' }}>
-                      {finding.recommendation}
-                    </Box>
+                  <Typography variant="subtitle2" color="primary" gutterBottom>
+                    Recommendation:
+                  </Typography>
+                  <Typography variant="body2">
+                    {finding.recommendation}
                   </Typography>
                 </Paper>
               </Grid>
@@ -248,29 +259,14 @@ const ResultsDisplay = ({ results }: { results: AssessmentResult }) => {
           </Grid>
         </Box>
 
-        <Box>
-          <Typography variant="h5" gutterBottom>Recommendations</Typography>
-          <Grid container spacing={2}>
-            {results.priority_actions && results.priority_actions.map((recommendation, index) => (
-              <Grid item xs={12} sm={6} md={4} key={index}>
-                <Paper 
-                  elevation={0} 
-                  sx={{ 
-                    p: 2, 
-                    borderRadius: 2,
-                    border: '1px solid',
-                    borderColor: 'divider',
-                    bgcolor: 'background.default',
-                    height: '100%',
-                    display: 'flex',
-                    alignItems: 'center'
-                  }}
-                >
-                  <Typography variant="body1">{recommendation}</Typography>
-                </Paper>
-              </Grid>
-            ))}
-          </Grid>
+        <Box sx={{ mt: 4 }}>
+          <Typography variant="subtitle2" color="text.secondary">
+            Assessment Details
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Model: {results.ai_model_used} • 
+            Tokens: {results.token_usage?.prompt_tokens + results.token_usage?.completion_tokens}
+          </Typography>
         </Box>
       </Paper>
     </Box>
@@ -278,62 +274,19 @@ const ResultsDisplay = ({ results }: { results: AssessmentResult }) => {
 };
 
 export default function AssessmentPage() {
-  const [results, setResults] = useState<AssessmentResult | null>(null);
+  const [results, setResults] = useState<SecurityAssessmentResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleFormSubmit = async (data: AssessmentFormData) => {
+  const handleFormSubmit = async (formData: AssessmentFormData) => {
     setLoading(true);
+    setError(null);
     try {
-      // Convert form data to API format
-      const apiInput = {
-        organization_name: data.organizationName,
-        project_name: data.projectName,
-        ai_provider: data.aiProvider,
-        implementation_details: {
-          process_function: data.implementationDetails?.mainImplementation,
-          prompt_handling: data.implementationDetails?.promptHandling,
-          error_handling: data.implementationDetails?.errorHandling,
-        },
-        configs: {
-          token_limits: data.securityConfig?.tokenLimits,
-          rate_limiting: data.securityConfig?.rateLimiting,
-          input_validation: data.securityConfig?.inputValidation,
-        },
-        architecture_description: data.architecture ? [
-          data.architecture.overview,
-          data.architecture.deployment,
-          data.architecture.monitoring
-        ].filter(Boolean).join('\n\n') : '',
-        use_mock_data: (data as any).use_mock_data
-      };
-      
-      // Mock API call or actual API call based on environment
-      const mockEnabled = process.env.NEXT_PUBLIC_ENABLE_MOCK_API === 'true';
-      
-      let response;
-      if (mockEnabled || (data as any).use_mock_data) {
-        // Use mock data for testing - always use the mock API
-        response = await fetch(`/api/mock/assessment`);
-      } else {
-        // Use the Next.js API route to communicate with backend
-        response = await fetch('/api/assessment', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(apiInput),
-        });
-      }
-      
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-      }
-      
-      const responseData = await response.json();
-      setResults(responseData);
-    } catch (error) {
-      console.error('Error submitting assessment:', error);
-      alert('Failed to submit assessment. Please try again.');
+      const apiInput = mapFormDataToApiInput(formData);
+      const result = await AssessmentService.performAssessment(apiInput);
+      setResults(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred during assessment');
     } finally {
       setLoading(false);
     }
@@ -381,10 +334,19 @@ export default function AssessmentPage() {
           maxWidth: '1000px',
           mx: 'auto'
         }}>
-          <AssessmentForm onSubmit={handleFormSubmit} isLoading={loading} />
+          {!results ? (
+            <>
+              {error && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  {error}
+                </Alert>
+              )}
+              <AssessmentForm onSubmit={handleFormSubmit} isLoading={loading} />
+            </>
+          ) : (
+            <ResultsDisplay results={results} />
+          )}
         </Paper>
-        
-        {results && <ResultsDisplay results={results} />}
       </div>
     </main>
   );

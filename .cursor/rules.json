@@ -1,0 +1,14 @@
+{
+  "rules": [
+    {
+      "name": "parseon-ai-security-context",
+      "description": "Always include the following context in the context window for all code edits, completions, and refactors in the Parseon project, especially when working on the Next.js frontend or any code that interacts with the backend API.",
+      "context": [
+        "Project Goals: Parseon is an AI security assessment tool focused on detecting and preventing vulnerabilities in AI-integrated applications. Core focus: dynamic AI security analysis, prompt injection detection, model boundary validation, AI data flow security, and scalable automation.",
+        "Backend/API Changes: The backend now uses open-ended, creative LLM prompts to maximize vulnerability detection. Findings are not filtered by confidence unless explicitly requested; all findings are returned and scored. The API endpoint for assessment is /api/v1/assess (POST), expecting a JSON payload as per the OpenAPI schema. The backend expects and returns findings in a specific format (see backend OpenAPI schema and recent changes).",
+        "Frontend/Backend Connection: The frontend must POST to the correct backend endpoint (http://localhost:8000/api/v1/assess or as set in NEXT_PUBLIC_API_URL). Ensure CORS and Content Security Policy (CSP) allow connections to the backend. Remove or avoid any local Next.js API route that would shadow /api/v1/assess. Use modern, accessible, and secure UI/UX patterns (Tailwind, Shadcn, etc.). All API requests should handle errors gracefully and display meaningful feedback to the user.",
+        "General Best Practices: Use early returns, descriptive variable names, and accessibility features. Always use Tailwind for styling. Ensure all code is DRY, readable, and production-quality."
+      ]
+    }
+  ]
+} 

@@ -65,7 +65,7 @@ const nextConfig = {
               style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
               font-src 'self' https://fonts.gstatic.com data:;
               img-src 'self' data: https:;
-              connect-src 'self' ${process.env.NEXT_PUBLIC_API_URL || ''} https://fonts.googleapis.com https://fonts.gstatic.com;
+              connect-src 'self' http://localhost:8000 ${process.env.NEXT_PUBLIC_API_URL || ''} https://fonts.googleapis.com https://fonts.gstatic.com;
               frame-src 'self';
               object-src 'none';
               base-uri 'self';

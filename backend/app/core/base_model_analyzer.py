@@ -21,125 +21,53 @@ class BaseModelAnalyzer:
     def __init__(self):
         """Initialize with OpenAI client"""
         self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.model = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+        self.model = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo-16k")
         self.token_usage = {"prompt_tokens": 0, "completion_tokens": 0}
     
     async def analyze_code(self, code: str, context: str) -> List[VulnerabilityFinding]:
         """Analyze code for AI security vulnerabilities using the base model"""
         print(f"\n---- DEBUG: Base model analysis for {context} ----")
         
-        system_prompt = """You are an AI security expert specializing in identifying security issues in AI-integrated applications.
-        Analyze the code for potential security vulnerabilities, focusing ONLY on AI-specific security issues.
-        Focus areas:
-        - Prompt injection vulnerabilities
-        - Insecure model loading
-        - Insecure API key management
-        - Insufficient input validation for AI components
-        - AI-specific data leakage
-        - Missing authorization for AI operations
-        - Improper error handling for AI components
-        - AI configuration vulnerabilities
+        system_prompt = (
+            "You are an expert AI security auditor. Review the following code for any possible, theoretical, or even minor AI security vulnerabilities. "
+            "Consider prompt injection, lack of input validation, insecure configuration, excessive permissions, or any other risk. "
+            "Use your full reasoning and creativity. Err on the side of caution: if there is any doubt, report a potential vulnerability. "
+            "Respond with a JSON array of findings, and you may include a brief narrative summary before the JSON if you wish. "
+            "Each finding should include: title, description, severity, category, code_snippet, recommendation."
+        )
         
-        IMPORTANT FORMATTING INSTRUCTIONS:
-        You MUST respond with a valid JSON array using the following format:
-        [
-            {
-                "title": "Brief title of the vulnerability",
-                "description": "Detailed description of the vulnerability",
-                "severity": "HIGH",
-                "category": "PROMPT_SECURITY",
-                "code_snippet": "relevant code here",
-                "recommendation": "Specific remediation steps",
-                "confidence": 0.8
-            },
-            {
-                "title": "Another vulnerability",
-                "description": "Another description",
-                "severity": "MEDIUM",
-                "category": "API_SECURITY",
-                "code_snippet": "relevant code here",
-                "recommendation": "Specific remediation steps",
-                "confidence": 0.7
-            }
-        ]
-        
-        Allowed severity levels are: "CRITICAL", "HIGH", "MEDIUM", "LOW"
-        Allowed categories are: "API_SECURITY", "PROMPT_SECURITY", "CONFIGURATION", "ERROR_HANDLING"
-        
-        IMPORTANT: Only report actual AI security vulnerabilities. Do not flag proper security practices as vulnerabilities.
-        If the code properly handles security (using sanitization, validation, environment variables, etc.), do not report it as vulnerable.
-        If no AI-specific security issues are found, respond with an empty array "[]" without any narrative.
-        
-        Your response MUST be valid JSON. Do not include any narrative, explanation, or text outside the JSON array.
-        """
-        
-        user_prompt = f"""Analyze the following code for AI security vulnerabilities:
-        
-        ```
-        {code}
-        ```
-        
-        Context: {context}
-        """
+        user_prompt = (
+            f"Here is a real-world code sample from an AI-integrated application. "
+            f"Please identify and describe all possible security vulnerabilities, even if they are only potential or minor risks. "
+            f"Use your best judgment and be thorough.\n\n<code>\n{code}\n</code>\nContext: {context}"
+        )
         
         return await self._analyze_with_llm(system_prompt, user_prompt)
     
     async def analyze_config(self, config: str) -> List[VulnerabilityFinding]:
         """Analyze configuration for AI security vulnerabilities using the base model"""
-        system_prompt = """You are an AI security expert specializing in identifying security issues in AI-integrated applications.
-        Analyze the configuration for potential security vulnerabilities, focusing ONLY on AI-specific security issues.
-        Focus areas:
-        - Insecure model configurations
-        - Overly permissive AI settings
-        - Missing rate limits or monitoring
-        - Insecure token or parameter settings
-        - Missing security controls for AI components
-        
-        IMPORTANT FORMATTING INSTRUCTIONS:
-        You MUST respond with a valid JSON array using the following format:
-        [
-            {
-                "title": "Brief title of the vulnerability",
-                "description": "Detailed description of the vulnerability",
-                "severity": "HIGH",
-                "category": "CONFIGURATION",
-                "code_snippet": "relevant configuration here",
-                "recommendation": "Specific remediation steps",
-                "confidence": 0.8
-            },
-            {
-                "title": "Another vulnerability",
-                "description": "Another description",
-                "severity": "MEDIUM",
-                "category": "API_SECURITY",
-                "code_snippet": "relevant configuration here",
-                "recommendation": "Specific remediation steps",
-                "confidence": 0.7
-            }
-        ]
-        
-        Allowed severity levels are: "CRITICAL", "HIGH", "MEDIUM", "LOW"
-        Allowed categories are: "API_SECURITY", "PROMPT_SECURITY", "CONFIGURATION", "ERROR_HANDLING"
-        
-        IMPORTANT: Only report actual security vulnerabilities. Do not flag proper security practices as vulnerabilities.
-        If the configuration properly handles security, do not report it as vulnerable.
-        If no AI-specific security issues are found, respond with an empty array "[]" without any narrative.
-        
-        Your response MUST be valid JSON. Do not include any narrative, explanation, or text outside the JSON array.
-        """
-        
-        user_prompt = f"""Analyze the following configuration for AI security vulnerabilities:
-        
-        ```
-        {config}
-        ```
-        """
-        
+        system_prompt = (
+            "You are an expert AI security auditor. Review the following configuration for any possible, theoretical, or even minor AI security vulnerabilities. "
+            "Consider insecure model settings, overly permissive parameters, missing rate limits, insecure API keys, or any other risk. "
+            "Use your full reasoning and creativity. Err on the side of caution: if there is any doubt, report a potential vulnerability. "
+            "Respond with a JSON array of findings, and you may include a brief narrative summary before the JSON if you wish. "
+            "Each finding should include: title, description, severity, category, code_snippet, recommendation."
+        )
+        user_prompt = (
+            f"Here is a real-world configuration file from an AI-integrated application. "
+            f"Please identify and describe all possible security vulnerabilities, even if they are only potential or minor risks. "
+            f"Use your best judgment and be thorough.\n\n<config>\n{config}\n</config>"
+        )
         return await self._analyze_with_llm(system_prompt, user_prompt)
     
     async def _analyze_with_llm(self, system_prompt: str, user_prompt: str) -> List[VulnerabilityFinding]:
         """Helper method that handles the actual LLM call and parsing logic"""
         try:
+            print("\n==== SYSTEM PROMPT ====")
+            print(system_prompt)
+            print("\n==== USER PROMPT ====")
+            print(user_prompt)
+            
             # Try with response_format first
             try:
                 response = await self.client.chat.completions.create(
@@ -148,7 +76,7 @@ class BaseModelAnalyzer:
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    temperature=0.1,
+                    temperature=0.3,
                     response_format={"type": "json_object"}
                 )
             except Exception as e:
@@ -160,7 +88,7 @@ class BaseModelAnalyzer:
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    temperature=0.1
+                    temperature=0.3
                 )
             
             # Update token usage
@@ -169,6 +97,9 @@ class BaseModelAnalyzer:
                 self.token_usage["completion_tokens"] += response.usage.completion_tokens
             
             response_text = response.choices[0].message.content
+            print("\n==== RAW LLM RESPONSE ====")
+            print(response_text)
+            print("========================\n")
             
             # Try to clean up the response if it's not valid JSON
             try:

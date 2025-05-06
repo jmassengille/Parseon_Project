@@ -3,6 +3,12 @@ export type CodeSnippetField = 'main_implementation' | 'prompt_handling' | 'erro
 export type SecurityConfigField = 'token_limits' | 'rate_limiting' | 'input_validation';
 export type ArchitectureField = 'overview' | 'deployment' | 'monitoring';
 
+export enum ScanMode {
+  COMPREHENSIVE = 'COMPREHENSIVE',
+  PROMPT_SECURITY = 'PROMPT_SECURITY',
+  API_SECURITY = 'API_SECURITY'
+}
+
 export interface AssessmentFormData {
   organizationName: string;
   projectName: string;

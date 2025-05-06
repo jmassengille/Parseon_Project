@@ -65,7 +65,7 @@ app.add_middleware(
 
 # Try to include API router
 try:
-    from app.api.v1.api import api_router
+    from app.api.v1.api import router as api_router
     app.include_router(api_router, prefix="/api/v1")
     logger.info("API router loaded successfully")
 except Exception as e:

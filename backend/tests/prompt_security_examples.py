@@ -221,7 +221,47 @@ def get_examples():
         }
     }
 
+import requests
+import json
+
+API_URL = "http://localhost:8000/api/v1/assess"
+
+def test_example(example_code, example_name):
+    payload = {
+        "ai_provider": "openai",
+        "architecture_description": "Test for prompt security",
+        "configs": {
+            "env_file": "OPENAI_API_KEY=sk-test\nMAX_TOKENS=500",
+            "json_config": "{\"temperature\": 0.7, \"max_tokens\": 500}"
+        },
+        "implementation_details": {
+            "process_function": example_code
+        },
+        "organization_name": "TestOrg",
+        "project_name": example_name,
+        "scan_mode": "COMPREHENSIVE"
+    }
+    try:
+        response = requests.post(API_URL, json=payload)
+        print(f"\n--- {example_name} ---")
+        print("Status:", response.status_code)
+        try:
+            print("Response:", json.dumps(response.json(), indent=2))
+        except Exception:
+            print("Response (non-JSON):", response.text)
+    except Exception as e:
+        print(f"Error testing {example_name}: {e}")
+
 if __name__ == "__main__":
     examples = get_examples()
     print(f"Loaded {len(examples['vulnerable'])} vulnerable examples")
-    print(f"Loaded {len(examples['secure'])} secure examples") 
+    print(f"Loaded {len(examples['secure'])} secure examples")
+
+    vulnerable_examples = [
+        ("VULNERABLE_EXAMPLE_1", VULNERABLE_EXAMPLE_1),
+        ("VULNERABLE_EXAMPLE_2", VULNERABLE_EXAMPLE_2),
+        ("VULNERABLE_EXAMPLE_3", VULNERABLE_EXAMPLE_3),
+        ("VULNERABLE_EXAMPLE_4", VULNERABLE_EXAMPLE_4),
+    ]
+    for name, code in vulnerable_examples:
+        test_example(code, name) 
