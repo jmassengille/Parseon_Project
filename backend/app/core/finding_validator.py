@@ -148,7 +148,7 @@ class FindingValidator:
         validation_info = {
             "validation_score": similarity,
             "similar_vulnerability": similar_vuln,
-            "validated": similarity >= self.similarity_threshold
+            "validated": bool(similarity >= self.similarity_threshold)
         }
         
         # Adjust confidence based on similarity

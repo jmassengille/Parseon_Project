@@ -32,6 +32,9 @@ class BaseModelAnalyzer:
             "You are an expert AI security auditor. Review the following code for any possible, theoretical, or even minor AI security vulnerabilities. "
             "Consider prompt injection, lack of input validation, insecure configuration, excessive permissions, or any other risk. "
             "Use your full reasoning and creativity. Err on the side of caution: if there is any doubt, report a potential vulnerability. "
+            "Do not flag API keys that are environment variable references (e.g., OPENAI_API_KEY) as vulnerabilities. Only flag hardcoded secrets if the value starts with 'sk-' or looks like a real secret. "
+            "If rate limiting logic is present, even as a stub or placeholder (e.g., allow_request), do not flag as a vulnerability unless there is no rate limiting logic at all. "
+            "If input validation and sanitization are present, do not flag unless there is clear evidence of missing or weak validation. "
             "Respond with a JSON array of findings, and you may include a brief narrative summary before the JSON if you wish. "
             "Each finding should include: title, description, severity, category, code_snippet, recommendation."
         )
@@ -46,10 +49,31 @@ class BaseModelAnalyzer:
     
     async def analyze_config(self, config: str) -> List[VulnerabilityFinding]:
         """Analyze configuration for AI security vulnerabilities using the base model"""
+        # Regex-based check for hardcoded OpenAI API keys
+        import json as _json
+        findings = []
+        try:
+            config_dict = _json.loads(config)
+            api_key = config_dict.get("api_key", "")
+            import re
+            if isinstance(api_key, str) and re.match(r"^sk-[a-zA-Z0-9]{20,}$", api_key):
+                findings.append(VulnerabilityFinding(
+                    id="api_key_hardcoded",
+                    title="Hardcoded OpenAI API Key",
+                    description="The API key is hardcoded in the configuration. Use environment variables or a secure key management system instead.",
+                    severity="HIGH",
+                    category="API_SECURITY",
+                    code_snippets=[f'"api_key": "{api_key}"'],
+                    recommendation="Store API keys in environment variables or a secure key vault. Never hardcode secrets in config files.",
+                    confidence=1.0
+                ))
+        except Exception:
+            pass  # If config is not valid JSON, skip static check
         system_prompt = (
             "You are an expert AI security auditor. Review the following configuration for any possible, theoretical, or even minor AI security vulnerabilities. "
             "Consider insecure model settings, overly permissive parameters, missing rate limits, insecure API keys, or any other risk. "
             "Use your full reasoning and creativity. Err on the side of caution: if there is any doubt, report a potential vulnerability. "
+            "Do not flag API keys as hardcoded if the value is a variable reference (e.g., OPENAI_API_KEY, process.env.OPENAI_API_KEY, os.environ['OPENAI_API_KEY']). Only flag as hardcoded if the value starts with 'sk-' or looks like a real secret. "
             "Respond with a JSON array of findings, and you may include a brief narrative summary before the JSON if you wish. "
             "Each finding should include: title, description, severity, category, code_snippet, recommendation."
         )
@@ -58,7 +82,8 @@ class BaseModelAnalyzer:
             f"Please identify and describe all possible security vulnerabilities, even if they are only potential or minor risks. "
             f"Use your best judgment and be thorough.\n\n<config>\n{config}\n</config>"
         )
-        return await self._analyze_with_llm(system_prompt, user_prompt)
+        llm_findings = await self._analyze_with_llm(system_prompt, user_prompt)
+        return findings + llm_findings
     
     async def _analyze_with_llm(self, system_prompt: str, user_prompt: str) -> List[VulnerabilityFinding]:
         """Helper method that handles the actual LLM call and parsing logic"""

@@ -27,6 +27,28 @@ app = FastAPI(
     openapi_url="/api/v1/openapi.json"
 )
 
+# CORS setup
+ENV = os.getenv("ENVIRONMENT", "development")
+
+if ENV == "production":
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "https://parseon.tech"
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:3000"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
 # Try to import settings, but provide fallbacks if it fails
 try:
     from app.core.config import Settings
@@ -54,14 +76,6 @@ if "*" in origins and len(origins) > 1:
     # Remove the wildcard and keep the specific origins
     origins.remove("*")
     logger.warning("Both wildcard (*) and specific origins defined in CORS settings. Using specific origins only.")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Try to include API router
 try:

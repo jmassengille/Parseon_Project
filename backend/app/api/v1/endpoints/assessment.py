@@ -13,43 +13,68 @@ from app.services.vector_store import VectorStore
 import logging
 from typing import List, Dict, Any
 from datetime import datetime
+import numpy as np
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+def _to_python_types(obj):
+    """Recursively convert numpy and Pydantic types to Python-native types for JSON serialization."""
+    if isinstance(obj, dict):
+        return {str(_to_python_types(k)): _to_python_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_to_python_types(i) for i in obj]
+    elif hasattr(obj, 'dict'):
+        return _to_python_types(obj.dict())
+    elif isinstance(obj, np.generic):
+        return obj.item()
+    elif isinstance(obj, (np.bool_, bool)):
+        return bool(obj)
+    elif isinstance(obj, (np.integer, int)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, float)):
+        return float(obj)
+    elif hasattr(obj, 'value'):
+        return str(obj.value)
+    return obj
+
 def _transform_assessment_result(result: SecurityAssessmentResult) -> Dict[str, Any]:
     """Transform backend assessment result to frontend format"""
-    # Calculate security score breakdown
-    security_score_breakdown = {
-        "API_SECURITY": result.category_scores.get("API_SECURITY", SecurityScore(score=0, findings=[], recommendations=[])).score,
-        "PROMPT_SECURITY": result.category_scores.get("PROMPT_SECURITY", SecurityScore(score=0, findings=[], recommendations=[])).score,
-        "CONFIGURATION": result.category_scores.get("CONFIGURATION", SecurityScore(score=0, findings=[], recommendations=[])).score,
-        "ERROR_HANDLING": result.category_scores.get("ERROR_HANDLING", SecurityScore(score=0, findings=[], recommendations=[])).score
-    }
+    # Only include the four main categories
+    main_categories = ["API_SECURITY", "PROMPT_SECURITY", "CONFIGURATION", "ERROR_HANDLING"]
+    category_scores = {}
+    for cat in main_categories:
+        score_obj = result.category_scores.get(cat)
+        if score_obj:
+            category_scores[cat] = {
+                "score": score_obj.score,
+                "findings": score_obj.findings,
+                "recommendations": score_obj.recommendations
+            }
+        else:
+            category_scores[cat] = {"score": 100.0, "findings": [], "recommendations": []}
 
-    # Calculate overall score as weighted average of category scores
-    category_weights = {
-        "API_SECURITY": 0.35,
-        "PROMPT_SECURITY": 0.35,
-        "CONFIGURATION": 0.15,
-        "ERROR_HANDLING": 0.15
-    }
-    
-    overall_score = sum(
-        security_score_breakdown[category] * weight
-        for category, weight in category_weights.items()
+    # Use the precomputed overall_score
+    overall_score = result.overall_score
+
+    # Order findings by severity and confidence
+    severity_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+    ordered_vulnerabilities = sorted(
+        result.vulnerabilities,
+        key=lambda f: (severity_order.get(f.severity.upper(), 4), -f.confidence)
     )
-    overall_score = round(overall_score, 1)  # Round to 1 decimal place
 
-    # Transform findings to match frontend format
     findings = []
-    for finding in result.vulnerabilities:
+    for finding in ordered_vulnerabilities:
         findings.append({
+            "id": finding.id,
             "category": finding.category,
-            "severity": finding.severity.upper(),  # Ensure uppercase severity
+            "severity": finding.severity.upper(),
             "title": finding.title,
             "description": finding.description,
-            "recommendation": finding.recommendation
+            "recommendation": finding.recommendation,
+            "code_snippets": finding.code_snippets,
+            "validation_info": finding.validation_info
         })
 
     # Create a summary based on findings
@@ -60,14 +85,17 @@ def _transform_assessment_result(result: SecurityAssessmentResult) -> Dict[str, 
         summary += f" Found {critical_count} critical and {high_count} high severity issues."
 
     return {
+        "organization_name": result.organization_name,
         "project_name": result.project_name,
         "timestamp": result.timestamp.isoformat(),
-        "overall_score": overall_score,  # Use calculated overall score
-        "risk_level": result.overall_risk_level.value,  # Use enum value
+        "overall_score": overall_score,
+        "risk_level": result.overall_risk_level.value,
         "summary": summary,
-        "findings": findings,
-        "recommendations": result.priority_actions,
-        "security_score_breakdown": security_score_breakdown
+        "vulnerabilities": findings,
+        "category_scores": category_scores,
+        "priority_actions": result.priority_actions,
+        "ai_model_used": result.ai_model_used,
+        "token_usage": result.token_usage
     }
 
 @router.post("/assess", response_model=Dict[str, Any])

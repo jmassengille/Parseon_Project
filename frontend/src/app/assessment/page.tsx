@@ -2,7 +2,7 @@
 
 import { Container, Box, Typography, Paper, Chip, Grid, LinearProgress, Alert } from '@mui/material';
 import dynamic from 'next/dynamic';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { SecurityAssessmentResult, AssessmentFormData } from '@/types/assessment';
 import { AssessmentService } from '@/services/assessment_service';
 import { mapFormDataToApiInput } from '@/lib/example-data';
@@ -21,7 +21,7 @@ interface DisplayFinding {
   confidence: number;
 }
 
-const ResultsDisplay = ({ results }: { results: SecurityAssessmentResult }) => {
+const ResultsDisplay = ({ results, onSubmitAnother }: { results: SecurityAssessmentResult, onSubmitAnother: () => void }) => {
   const getSeverityColor = (severity: string) => {
     if (!severity) return 'default';
     
@@ -52,7 +52,16 @@ const ResultsDisplay = ({ results }: { results: SecurityAssessmentResult }) => {
   const scoreBreakdown = results.category_scores || {};
 
   return (
-    <Box sx={{ mt: 4 }}>
+    <Box sx={{ mt: 4, position: 'relative' }}>
+      {/* Submit Another Report Button */}
+      <button
+        className="absolute top-4 right-4 px-4 py-2 border border-blue-600 rounded text-blue-700 bg-white hover:bg-blue-50 hover:border-blue-700 transition"
+        aria-label="Submit another report"
+        onClick={onSubmitAnother}
+        style={{ zIndex: 10 }}
+      >
+        Submit Another Report
+      </button>
       <Paper elevation={0} sx={{ p: 4, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
         <Box sx={{ mb: 4 }}>
           <Typography variant="h4" gutterBottom>
@@ -61,6 +70,18 @@ const ResultsDisplay = ({ results }: { results: SecurityAssessmentResult }) => {
           <Typography variant="subtitle1" color="text.secondary" gutterBottom>
             {new Date(results.timestamp).toLocaleString()}
           </Typography>
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body1" gutterBottom className="text-gray-700">
+              <span className="font-semibold">Organization:</span> {results.organization_name}
+            </Typography>
+            <Typography variant="body1" gutterBottom className="text-gray-700">
+              <span className="font-semibold">Project:</span> {results.project_name}
+            </Typography>
+            <Typography variant="body2" className="text-gray-600">
+              <span className="font-semibold">Model:</span> {results.ai_model_used} &nbsp; | &nbsp;
+              <span className="font-semibold">Tokens:</span> {results.token_usage?.prompt_tokens + results.token_usage?.completion_tokens}
+            </Typography>
+          </Box>
           
           {/* Value proposition section */}
           <Box sx={{ 
@@ -80,9 +101,7 @@ const ResultsDisplay = ({ results }: { results: SecurityAssessmentResult }) => {
               known AI security patterns and vulnerabilities.
             </Typography>
             <Typography variant="body2">
-              Each finding has been evaluated using our proprietary validation system, ensuring that reported 
-              vulnerabilities are backed by pattern recognition and similarity analysis against our extensive 
-              database of AI security issues.
+              Each finding is checked for similarity against a database of real-world vulnerabilities using pattern recognition and embedding-based analysis.
             </Typography>
           </Box>
           
@@ -94,41 +113,6 @@ const ResultsDisplay = ({ results }: { results: SecurityAssessmentResult }) => {
               variant="outlined" 
             />
           </Box>
-          <Typography variant="body1" gutterBottom>{results.project_name}</Typography>
-          <Typography variant="body2" color="text.secondary">Organization: {results.organization_name}</Typography>
-        </Box>
-
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="h5" gutterBottom>Security Score Breakdown</Typography>
-          <Grid container spacing={2}>
-            {Object.entries(scoreBreakdown).map(([category, data]) => (
-              <Grid item xs={12} sm={6} key={category}>
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                    {category.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-                  </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Box sx={{ flexGrow: 1 }}>
-                      <LinearProgress 
-                        variant="determinate" 
-                        value={data.score} 
-                        sx={{ 
-                          height: 10, 
-                          borderRadius: 5,
-                          backgroundColor: 'grey.200',
-                          '& .MuiLinearProgress-bar': {
-                            borderRadius: 5,
-                            backgroundColor: data.score > 80 ? 'success.main' : data.score > 60 ? 'warning.main' : 'error.main',
-                          }
-                        }} 
-                      />
-                    </Box>
-                    <Typography variant="body2">{data.score}%</Typography>
-                  </Box>
-                </Box>
-              </Grid>
-            ))}
-          </Grid>
         </Box>
 
         <Box sx={{ mb: 4 }}>
@@ -166,8 +150,7 @@ const ResultsDisplay = ({ results }: { results: SecurityAssessmentResult }) => {
                     Two-Layer Analysis
                   </Typography>
                   <Typography variant="body2" paragraph>
-                    Parseon combines broad pattern detection with targeted validation to ensure high precision.
-                    Each finding undergoes validation against our database of known AI security vulnerabilities.
+                    The assessment uses a two-step process: first, a large language model (LLM) scans your code and configuration for patterns that match known AI security issues. Then, each finding is checked for similarity against a database of real-world vulnerabilities to help reduce false positives.
                   </Typography>
                 </Box>
               </Grid>
@@ -177,8 +160,7 @@ const ResultsDisplay = ({ results }: { results: SecurityAssessmentResult }) => {
                     Embedding-Based Validation
                   </Typography>
                   <Typography variant="body2" paragraph>
-                    We use semantic similarity with cutting-edge embedding technology to validate findings
-                    against known patterns, significantly reducing false positives.
+                    Vector embeddings are used to compare detected issues with examples of real vulnerabilities. This helps confirm whether a finding is likely to be a true security risk or just a pattern match.
                   </Typography>
                 </Box>
               </Grid>
@@ -233,12 +215,6 @@ const ResultsDisplay = ({ results }: { results: SecurityAssessmentResult }) => {
                         variant="outlined"
                         size="small"
                       />
-                      <Chip 
-                        label={`${Math.round(finding.confidence * 100)}% confidence`}
-                        color="default"
-                        variant="outlined"
-                        size="small"
-                      />
                     </Box>
                   </Box>
                   <Typography variant="body2" color="text.secondary" gutterBottom>
@@ -257,16 +233,6 @@ const ResultsDisplay = ({ results }: { results: SecurityAssessmentResult }) => {
               </Grid>
             ))}
           </Grid>
-        </Box>
-
-        <Box sx={{ mt: 4 }}>
-          <Typography variant="subtitle2" color="text.secondary">
-            Assessment Details
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Model: {results.ai_model_used} • 
-            Tokens: {results.token_usage?.prompt_tokens + results.token_usage?.completion_tokens}
-          </Typography>
         </Box>
       </Paper>
     </Box>
@@ -292,61 +258,41 @@ export default function AssessmentPage() {
     }
   };
 
+  const handleSubmitAnother = () => {
+    setResults(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   return (
     <main className="min-h-screen bg-gray-50 py-12">
-      <div className="container mx-auto px-4">
-        <Box sx={{ textAlign: 'center', mb: 6 }}>
-          <Typography variant="h3" component="h1" sx={{ 
-            fontWeight: 700, 
-            mb: 2,
-            background: 'linear-gradient(90deg, #1976d2 0%, #2196f3 100%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            display: 'inline-block'
-          }}>
-            Parseon AI Security Analysis
-          </Typography>
-          <Typography variant="subtitle1" sx={{ 
-            color: 'text.secondary', 
-            maxWidth: '700px', 
-            mx: 'auto',
-            mb: 1
-          }}>
-            Detect and remediate security vulnerabilities in your AI implementations
-          </Typography>
-          <Typography variant="body2" sx={{ 
-            color: 'text.secondary', 
-            maxWidth: '700px', 
-            mx: 'auto' 
-          }}>
-            Parseon combines LLM-powered analysis with embedding-based validation to identify 
-            AI-specific security issues like prompt injection, model vulnerabilities, 
-            and insecure configurations.
-          </Typography>
-        </Box>
-        
-        <Paper elevation={0} sx={{ 
-          p: { xs: 2, sm: 4 }, 
-          borderRadius: 2, 
-          border: '1px solid', 
-          borderColor: 'divider',
-          mb: 6,
-          maxWidth: '1000px',
-          mx: 'auto'
-        }}>
-          {!results ? (
-            <>
-              {error && (
-                <Alert severity="error" sx={{ mb: 2 }}>
-                  {error}
-                </Alert>
-              )}
-              <AssessmentForm onSubmit={handleFormSubmit} isLoading={loading} />
-            </>
-          ) : (
-            <ResultsDisplay results={results} />
-          )}
-        </Paper>
+      <div className="flex flex-col items-center w-full px-4">
+        {/* Header Card - only show if no results */}
+        {!results && (
+          <div className="bg-white rounded-xl shadow-md p-8 max-w-3xl w-full mb-4 text-center">
+            <h1 className="text-3xl font-bold mb-2 bg-gradient-to-r from-blue-700 to-blue-400 bg-clip-text text-transparent">Parseon AI Security Analysis</h1>
+            <p className="text-lg text-gray-700 mb-1">Detect and remediate security vulnerabilities in your AI implementations</p>
+            <p className="text-sm text-gray-500 max-w-2xl mx-auto">
+              Parseon combines LLM-powered analysis with embedding-based validation to identify AI-specific security issues like prompt injection, model vulnerabilities, and insecure configurations.
+            </p>
+          </div>
+        )}
+        {/* Form or Results */}
+        <div className="w-full flex flex-col items-center">
+          <div className="max-w-3xl w-full">
+            {!results ? (
+              <>
+                {error && (
+                  <div className="mb-4 w-full">
+                    <div className="bg-red-100 border border-red-300 text-red-700 px-4 py-2 rounded-md text-sm">{error}</div>
+                  </div>
+                )}
+                <AssessmentForm onSubmit={(data) => { void handleFormSubmit(data); }} isLoading={loading} />
+              </>
+            ) : (
+              <ResultsDisplay results={results} onSubmitAnother={handleSubmitAnother} />
+            )}
+          </div>
+        </div>
       </div>
     </main>
   );

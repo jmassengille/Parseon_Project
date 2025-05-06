@@ -27,6 +27,7 @@ import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import RemoveIcon from '@mui/icons-material/Remove';
 import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
+import { useRouter } from 'next/router';
 
 const StyledPaper = styled(Paper)(({ theme }) => ({
   padding: theme.spacing(3),
@@ -205,6 +206,7 @@ const AssessmentPDF = ({ results }: { results: AssessmentResult }) => (
 );
 
 export default function AssessmentResults({ results }: AssessmentResultsProps) {
+  const router = useRouter();
   if (!results) return null;
 
   const getScoreColor = (score: number) => {
@@ -229,41 +231,19 @@ export default function AssessmentResults({ results }: AssessmentResultsProps) {
   };
 
   return (
-    <StyledPaper>
+    <StyledPaper sx={{ position: 'relative' }}>
+      {/* Submit Another Report Button */}
+      <button
+        className="absolute top-4 right-4 px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 transition"
+        aria-label="Submit another report"
+        onClick={() => router.push('/')}
+        style={{ zIndex: 10 }}
+      >
+        Submit Another Report
+      </button>
       <Typography variant="h4" gutterBottom>
         AI Security Assessment Results
       </Typography>
-      
-      {/* Value proposition */}
-      <Box sx={{ 
-        backgroundColor: 'rgba(25, 118, 210, 0.06)', 
-        p: 2, 
-        borderRadius: 2, 
-        mb: 3,
-        border: '1px solid',
-        borderColor: 'primary.light' 
-      }}>
-        <Typography variant="subtitle1" color="primary.main" fontWeight="500" gutterBottom>
-          Powered by Parseon's Advanced Validation Technology
-        </Typography>
-        <Typography variant="body2" paragraph>
-          Your assessment has been analyzed using our proprietary dual-layer approach:
-        </Typography>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 1 }}>
-          <Box sx={{ flex: '1 1 45%', minWidth: '200px' }}>
-            <Typography variant="body2" fontWeight="500">• Advanced LLM Analysis</Typography>
-            <Typography variant="body2" sx={{ fontSize: '0.85rem' }}>
-              Comprehensive scanning for AI-specific vulnerabilities using state-of-the-art large language models
-            </Typography>
-          </Box>
-          <Box sx={{ flex: '1 1 45%', minWidth: '200px' }}>
-            <Typography variant="body2" fontWeight="500">• Embedding-Based Validation</Typography>
-            <Typography variant="body2" sx={{ fontSize: '0.85rem' }}>
-              Each finding is validated against our database of known AI security patterns using semantic similarity
-            </Typography>
-          </Box>
-        </Box>
-      </Box>
       
       <Grid container spacing={3}>
         <Grid item xs={12} md={6}>
@@ -359,14 +339,6 @@ export default function AssessmentResults({ results }: AssessmentResultsProps) {
                         variant="outlined"
                         size="small"
                       />
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Tooltip title={`Confidence: ${((finding.confidence || 0) * 100).toFixed(0)}%`}>
-                          <Typography variant="body2">
-                            {((finding.confidence || 0) * 100).toFixed(0)}%
-                          </Typography>
-                        </Tooltip>
-                        {finding.validation_info && getAdjustmentIcon(finding.validation_info.confidence_adjustment)}
-                      </Box>
                     </Box>
                   }
                   secondary={
@@ -378,7 +350,7 @@ export default function AssessmentResults({ results }: AssessmentResultsProps) {
                         <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
                           <VerifiedIcon fontSize="small" color={finding.validation_info.validated ? "success" : "disabled"} />
                           <Typography variant="body2" color="text.secondary">
-                            Validation score: {((finding.validation_info.validation_score || 0) * 100).toFixed(0)}%
+                            {finding.validation_info.validated ? 'Validated' : 'Unverified'}
                             {finding.validation_info.similar_vulnerability && 
                               ` • Similar to: ${finding.validation_info.similar_vulnerability}`}
                           </Typography>

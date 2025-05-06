@@ -786,27 +786,43 @@ Backup & DR:
   },
 };
 
-// Form validation schema
+// Example data (imported or pasted from backend/tests/prompt_security_examples.py)
+const SECURE_EXAMPLE = {
+  organization_name: "SecureOrg",
+  project_name: "Secure Project",
+  ai_provider: "openai",
+  scan_mode: "COMPREHENSIVE",
+  implementation_details: {
+    process_user_input: `def allow_request(user_id):\n    # Example stub: always allow (replace with real logic)\n    return True\n\ndef process_user_input(user_input, user_id):\n    # Input validation\n    if not isinstance(user_input, str) or len(user_input) > 256:\n        return "Invalid input"\n    # Robust sanitization (block suspicious patterns)\n    import re\n    if re.search(r"[{};]|(system\\.|os\\.|subprocess|exec|eval|import )", user_input, re.IGNORECASE):\n        return "Potentially unsafe input"\n    # Minimal rate limiting (stub)\n    if not allow_request(user_id):\n        return "Rate limit exceeded"\n    prompt = f"You are a helpful assistant. Answer this: {user_input}"\n    response = openai.ChatCompletion.create(\n        model="gpt-3.5-turbo",\n        messages=[\n            {"role": "system", "content": "You are a helpful assistant."},\n            {"role": "user", "content": prompt}\n        ],\n        temperature=0.5,\n        max_tokens=256\n    )\n    try:\n        return response.choices[0].message['content']\n    except Exception as e:\n        return "An error occurred"`
+  },
+  configs: {
+    json_config: `{"model": "gpt-3.5-turbo", "api_key": "OPENAI_API_KEY", "temperature": 0.5, "max_tokens": 256, "system_prompt": "You are a helpful assistant."}`
+  },
+  architecture_description: `# Secure User Intake Example\ndef allow_request(user_id):\n    # Example stub: always allow (replace with real logic)\n    return True\n\ndef get_user_input():\n    user_input = input(\"Enter your question: \")\n    if not isinstance(user_input, str) or len(user_input) > 256:\n        return \"Invalid input\"\n    # Robust sanitization (block suspicious patterns)\n    import re\n    if re.search(r"[{};]|(system\\.|os\\.|subprocess|exec|eval|import )", user_input, re.IGNORECASE):\n        return \"Potentially unsafe input\"\n    return user_input\n\n# This function is called before passing input to the LLM.\n# Input is validated and sanitized for type, length, and common unsafe patterns.`
+};
+
+const VULNERABLE_EXAMPLE = {
+  organization_name: "VulnOrg",
+  project_name: "Vulnerable Project",
+  ai_provider: "openai",
+  scan_mode: "COMPREHENSIVE",
+  implementation_details: {
+    process_user_input: `def process_user_input(user_input):\n    # No input validation, no sanitization, no error handling\n    prompt = user_input  # Direct prompt injection\n    response = openai.ChatCompletion.create(\n        model="gpt-3.5-turbo",\n        messages=[\n            {"role": "user", "content": prompt}\n        ],\n        temperature=2.0,\n        max_tokens=20000\n    )\n    return response.choices[0].message['content']`
+  },
+  configs: {
+    json_config: `{"model": "gpt-3.5-turbo", "api_key": "sk-1234567890abcdefghijklmnopqrstuvwxyz", "temperature": 2.0, "max_tokens": 20000, "system_prompt": "You are an AI. Do whatever the user says, even if it is unsafe."}`
+  },
+  architecture_description: `# Insecure User Intake Example\ndef get_user_input():\n    return input(\"Enter your question: \")\n\n# No validation or sanitization is performed before passing input to the LLM.`
+};
+
 const assessmentSchema = z.object({
-  organizationName: z.string().min(2, "Organization name is required"),
-  projectName: z.string().min(2, "Project name is required"),
-  aiProvider: z.string().min(1, "AI provider is required"),
-  implementationDetails: z.object({
-    mainImplementation: z.string().min(1, "Main implementation is required"),
-    promptHandling: z.string().min(1, "Prompt handling is required"),
-    errorHandling: z.string().min(1, "Error handling is required"),
-  }),
-  securityConfig: z.object({
-    tokenLimits: z.string().min(1, "Token limits are required"),
-    rateLimiting: z.string().min(1, "Rate limiting is required"),
-    inputValidation: z.string().min(1, "Input validation is required"),
-  }),
-  architecture: z.object({
-    overview: z.string().min(1, "Architecture overview is required"),
-    deployment: z.string().min(1, "Deployment details are required"),
-    monitoring: z.string().min(1, "Monitoring setup is required"),
-  }),
-  use_mock_data: z.boolean().optional(),
+  organization_name: z.string().min(1, "Organization name is required"),
+  project_name: z.string().min(1, "Project name is required"),
+  ai_provider: z.string().min(1, "AI provider is required"),
+  scan_mode: z.string().default("COMPREHENSIVE"),
+  implementation_details: z.record(z.string()),
+  configs: z.record(z.string()),
+  architecture_description: z.string().min(1, "Architecture description is required"),
 });
 
 type AssessmentFormData = z.infer<typeof assessmentSchema>;
@@ -817,574 +833,155 @@ interface AssessmentFormProps {
 }
 
 export default function AssessmentForm({ onSubmit, isLoading }: AssessmentFormProps) {
-  const [activeStep, setActiveStep] = useState(0);
-  const [showExamplesDialog, setShowExamplesDialog] = useState(false);
-  const [testDataTab, setTestDataTab] = useState(0);
-
-  const {
-    control,
-    handleSubmit,
-    formState: { errors },
-    trigger,
-    setValue,
-  } = useForm<AssessmentFormData>({
+  const { control, handleSubmit, setValue, formState: { errors } } = useForm<AssessmentFormData>({
     resolver: zodResolver(assessmentSchema),
     defaultValues: {
-      organizationName: "",
-      projectName: "",
-      aiProvider: "openai",
-      implementationDetails: {
-        mainImplementation: "",
-        promptHandling: "",
-        errorHandling: "",
-      },
-      securityConfig: {
-        tokenLimits: "",
-        rateLimiting: "",
-        inputValidation: "",
-      },
-      architecture: {
-        overview: "",
-        deployment: "",
-        monitoring: "",
-      },
-    },
+      organization_name: "",
+      project_name: "",
+      ai_provider: "openai",
+      scan_mode: "COMPREHENSIVE",
+      implementation_details: { process_user_input: "" },
+      configs: { json_config: "" },
+      architecture_description: ""
+    }
   });
 
-  const handleNext = async () => {
-    const fieldsToValidate = getFieldsForStep(activeStep);
-    const isValid = await trigger(fieldsToValidate);
-    if (isValid) {
-      setActiveStep((prevStep) => prevStep + 1);
-    }
+  const handleExample = (example: AssessmentFormData) => {
+    Object.entries(example).forEach(([key, value]) => {
+      setValue(key as keyof AssessmentFormData, value as any);
+    });
   };
 
-  const handleBack = () => {
-    setActiveStep((prevStep) => prevStep - 1);
-  };
-
-  const getFieldsForStep = (step: number): (keyof AssessmentFormData)[] => {
-    switch (step) {
-      case 0:
-        return ["organizationName", "projectName", "aiProvider"];
-      case 1:
-        return ["implementationDetails"];
-      case 2:
-        return ["securityConfig"];
-      case 3:
-        return ["architecture"];
-      default:
-        return [];
-    }
-  };
-
-  const handleFormSubmit = async (data: AssessmentFormData) => {
-    try {
-      onSubmit(data);
-    } catch (err: any) {
-      console.error('Error submitting assessment:', err);
-      alert(`Error: ${err.message || 'An unknown error occurred'}`);
-    }
-  };
-
-  const handleTestDataTabChange = (_: React.SyntheticEvent, newValue: number) => {
-    setTestDataTab(newValue);
-  };
-
-  const copyTestData = () => {
-    setValue("organizationName", exampleData.organizationName);
-    setValue("projectName", exampleData.projectName);
-    setValue("aiProvider", exampleData.aiProvider);
-    setValue("implementationDetails", exampleData.implementationDetails);
-    setValue("securityConfig", exampleData.securityConfig);
-    setValue("architecture", exampleData.architecture);
-    setShowExamplesDialog(false);
-  };
-
-  const handleTestResults = async () => {
-    try {
-      const testData = {
-        organizationName: "Test Organization",
-        projectName: "Test Project",
-        aiProvider: "openai",
-        use_mock_data: true
-      } as any;
-      
-      onSubmit(testData);
-    } catch (err: any) {
-      console.error('Error loading test results:', err);
-      alert(`Error: ${err.message || 'An unknown error occurred'}`);
-    }
-  };
-
-  const renderStepContent = (step: number) => {
-    switch (step) {
-      case 0:
         return (
-          <Box sx={{ mt: 2 }}>
-            <Box sx={{ mb: 3, p: 2, backgroundColor: 'rgba(25, 118, 210, 0.04)', borderRadius: 1 }}>
-              <Typography variant="body2" color="text.secondary">
-                Enter your organization and project details to begin the AI security assessment.
-                Parseon will analyze your implementation for vulnerabilities specific to AI systems.
-              </Typography>
-            </Box>
-            <Controller
-              name="organizationName"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  label="Organization Name"
-                  fullWidth
-                  margin="normal"
-                  error={!!errors.organizationName}
-                  helperText={errors.organizationName?.message}
-                />
-              )}
-            />
-            <Controller
-              name="projectName"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  label="Project Name"
-                  fullWidth
-                  margin="normal"
-                  error={!!errors.projectName}
-                  helperText={errors.projectName?.message}
-                />
-              )}
-            />
-            <Controller
-              name="aiProvider"
-              control={control}
-              render={({ field }) => (
-                <FormControl fullWidth margin="normal">
-                  <InputLabel>AI Provider</InputLabel>
-                  <Select {...field} label="AI Provider">
-                    <MenuItem value="openai">OpenAI</MenuItem>
-                    <MenuItem value="anthropic">Anthropic</MenuItem>
-                    <MenuItem value="google">Google</MenuItem>
-                    <MenuItem value="custom">Custom</MenuItem>
-                  </Select>
-                </FormControl>
-              )}
-            />
-          </Box>
-        );
-      case 1:
-        return (
-          <Box sx={{ mt: 2 }}>
-            <Box sx={{ mb: 3, p: 2, backgroundColor: 'rgba(25, 118, 210, 0.04)', borderRadius: 1 }}>
-              <Typography variant="body2" color="text.secondary">
-                Provide code snippets from your implementation to scan for AI-specific vulnerabilities such as 
-                prompt injection, insecure API usage, and improper error handling.
-              </Typography>
-            </Box>
-            <Controller
-              name="implementationDetails.mainImplementation"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  label="Main Implementation"
-                  fullWidth
-                  multiline
-                  rows={4}
-                  margin="normal"
-                  error={!!errors.implementationDetails?.mainImplementation}
-                  helperText={errors.implementationDetails?.mainImplementation?.message}
-                />
-              )}
-            />
-            <Controller
-              name="implementationDetails.promptHandling"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  label="Prompt Handling"
-                  fullWidth
-                  multiline
-                  rows={4}
-                  margin="normal"
-                  error={!!errors.implementationDetails?.promptHandling}
-                  helperText={errors.implementationDetails?.promptHandling?.message}
-                />
-              )}
-            />
-            <Controller
-              name="implementationDetails.errorHandling"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  label="Error Handling"
-                  fullWidth
-                  multiline
-                  rows={4}
-                  margin="normal"
-                  error={!!errors.implementationDetails?.errorHandling}
-                  helperText={errors.implementationDetails?.errorHandling?.message}
-                />
-              )}
-            />
-          </Box>
-        );
-      case 2:
-        return (
-          <Box sx={{ mt: 2 }}>
-            <Box sx={{ mb: 3, p: 2, backgroundColor: 'rgba(25, 118, 210, 0.04)', borderRadius: 1 }}>
-              <Typography variant="body2" color="text.secondary">
-                Detail your security controls for token usage, rate limiting, and input validation.
-                Parseon will assess these measures against AI security best practices.
-              </Typography>
-            </Box>
-            <Controller
-              name="securityConfig.tokenLimits"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  label="Token Limits & Usage Restrictions"
-                  fullWidth
-                  multiline
-                  rows={4}
-                  margin="normal"
-                  error={!!errors.securityConfig?.tokenLimits}
-                  helperText={errors.securityConfig?.tokenLimits?.message}
-                />
-              )}
-            />
-            <Controller
-              name="securityConfig.rateLimiting"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  label="Rate Limiting"
-                  fullWidth
-                  multiline
-                  rows={4}
-                  margin="normal"
-                  error={!!errors.securityConfig?.rateLimiting}
-                  helperText={errors.securityConfig?.rateLimiting?.message}
-                />
-              )}
-            />
-            <Controller
-              name="securityConfig.inputValidation"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  label="Input Validation"
-                  fullWidth
-                  multiline
-                  rows={4}
-                  margin="normal"
-                  error={!!errors.securityConfig?.inputValidation}
-                  helperText={errors.securityConfig?.inputValidation?.message}
-                />
-              )}
-            />
-          </Box>
-        );
-      case 3:
-        return (
-          <Box sx={{ mt: 2 }}>
-            <Box sx={{ mb: 3, p: 2, backgroundColor: 'rgba(25, 118, 210, 0.04)', borderRadius: 1 }}>
-              <Typography variant="body2" color="text.secondary">
-                Describe your AI system's architecture, deployment environment, and monitoring setup.
-                Parseon will evaluate architectural security concerns specific to AI systems.
-              </Typography>
-            </Box>
-            <Controller
-              name="architecture.overview"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  label="Architecture Overview"
-                  fullWidth
-                  multiline
-                  rows={4}
-                  margin="normal"
-                  error={!!errors.architecture?.overview}
-                  helperText={errors.architecture?.overview?.message}
-                />
-              )}
-            />
-            <Controller
-              name="architecture.deployment"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  label="Deployment Environment"
-                  fullWidth
-                  multiline
-                  rows={4}
-                  margin="normal"
-                  error={!!errors.architecture?.deployment}
-                  helperText={errors.architecture?.deployment?.message}
-                />
-              )}
-            />
-            <Controller
-              name="architecture.monitoring"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  label="Monitoring & Logging"
-                  fullWidth
-                  multiline
-                  rows={4}
-                  margin="normal"
-                  error={!!errors.architecture?.monitoring}
-                  helperText={errors.architecture?.monitoring?.message}
-                />
-              )}
-            />
-          </Box>
-        );
-      default:
-        return null;
-    }
-  };
-
-  return (
-    <>
-      <Box>
-        <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2, mb: 4 }}>
-          <Button
-            variant="outlined"
-            startIcon={<ContentCopyIcon />}
-            onClick={() => setShowExamplesDialog(true)}
-            sx={{
-              color: "text.secondary",
-              borderColor: "divider",
-              "&:hover": {
-                borderColor: "primary.main",
-                backgroundColor: "action.hover"
-              }
-            }}
-          >
-            Load Test Data
-          </Button>
-          
-          <Button
-            variant="outlined"
-            startIcon={<VisibilityIcon />}
-            onClick={handleTestResults}
-            sx={{
-              color: "primary.main",
-              borderColor: "primary.main",
-              backgroundColor: "rgba(25, 118, 210, 0.08)",
-              fontWeight: 500,
-              "&:hover": {
-                backgroundColor: "rgba(25, 118, 210, 0.12)",
-                borderColor: "primary.dark"
-              }
-            }}
-          >
-            Test Results Page
-          </Button>
-        </Box>
-
-        <form onSubmit={handleSubmit(handleFormSubmit)}>
-          <Stepper 
-            activeStep={activeStep} 
-            sx={{ 
-              mb: 4,
-              "& .MuiStepLabel-label": {
-                color: "text.primary"
-              },
-              "& .MuiStepIcon-root": {
-                color: "primary.main"
-              },
-              "& .MuiStepIcon-root.Mui-active": {
-                color: "primary.main"
-              },
-              "& .MuiStepIcon-root.Mui-completed": {
-                color: "primary.main"
-              }
-            }}
-          >
-            {steps.map((label) => (
-              <Step key={label}>
-                <StepLabel>{label}</StepLabel>
-              </Step>
-            ))}
-          </Stepper>
-
-          {renderStepContent(activeStep)}
-
-          <Box sx={{ display: "flex", justifyContent: "space-between", mt: 4 }}>
-            <Button
-              disabled={activeStep === 0}
-              onClick={handleBack}
-              variant="outlined"
-              sx={{
-                color: "primary.main",
-                borderColor: "primary.main",
-                "&:hover": {
-                  borderColor: "primary.dark",
-                  backgroundColor: "action.hover"
-                },
-                "&.Mui-disabled": {
-                  color: "action.disabled",
-                  borderColor: "action.disabled"
-                }
-              }}
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center py-12">
+      <form onSubmit={handleSubmit(onSubmit)} className="max-w-2xl w-full mx-auto bg-white border border-gray-200 rounded-2xl shadow-lg p-8 space-y-10 mt-2">
+        <div className="mb-6">
+          <p className="text-sm text-gray-600 mb-2">Quickly try with a secure or vulnerable implementation.</p>
+          <div className="flex flex-row gap-3">
+            <button
+              type="button"
+              className="inline-flex items-center px-4 py-1 border border-blue-600 rounded-md text-sm font-medium text-blue-700 bg-white hover:bg-blue-50 hover:border-blue-700 transition focus:outline-none focus:ring-2 focus:ring-blue-400 mr-2"
+              onClick={() => handleExample(SECURE_EXAMPLE)}
+              aria-label="Populate with Secure Example"
+              tabIndex={0}
             >
-              Back
-            </Button>
-            {activeStep === steps.length - 1 ? (
-              <Button
-                type="submit"
-                variant="contained"
-                disabled={isLoading}
-                startIcon={isLoading && <CircularProgress size={20} />}
-                sx={{
-                  backgroundColor: "primary.main",
-                  color: "primary.contrastText",
-                  fontWeight: 500,
-                  px: 3,
-                  py: 1,
-                  fontSize: "1rem",
-                  "&:hover": {
-                    backgroundColor: "primary.dark"
-                  },
-                  boxShadow: 2
-                }}
-              >
-                {isLoading ? "Analyzing..." : "Start Assessment"}
-              </Button>
-            ) : (
-              <Button 
-                onClick={handleNext} 
-                variant="contained"
-                sx={{
-                  backgroundColor: "primary.main",
-                  color: "primary.contrastText",
-                  "&:hover": {
-                    backgroundColor: "primary.dark"
-                  }
-                }}
-              >
-                Next
-              </Button>
+              Populate with Secure Example
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center px-4 py-1 border border-blue-600 rounded-md text-sm font-medium text-blue-700 bg-white hover:bg-blue-50 hover:border-blue-700 transition focus:outline-none focus:ring-2 focus:ring-blue-400"
+              onClick={() => handleExample(VULNERABLE_EXAMPLE)}
+              aria-label="Populate with Vulnerable Example"
+              tabIndex={0}
+            >
+              Populate with Vulnerable Example
+            </button>
+          </div>
+        </div>
+        {/* Project Info */}
+        <div>
+          <h2 className="text-lg font-semibold text-gray-700 mb-4">Project Info</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label htmlFor="organization_name" className="block text-sm font-medium text-gray-700 mb-1">Organization Name</label>
+            <Controller
+                name="organization_name"
+              control={control}
+              render={({ field }) => (
+                  <input {...field} id="organization_name" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-400 text-gray-900" placeholder="Organization Name" aria-label="Organization Name" />
+                )}
+              />
+              {errors.organization_name && <p className="text-red-500 text-sm mt-1">{errors.organization_name.message}</p>}
+            </div>
+            <div>
+              <label htmlFor="project_name" className="block text-sm font-medium text-gray-700 mb-1">Project Name</label>
+            <Controller
+                name="project_name"
+              control={control}
+              render={({ field }) => (
+                  <input {...field} id="project_name" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-400 text-gray-900" placeholder="Project Name" aria-label="Project Name" />
+                )}
+              />
+              {errors.project_name && <p className="text-red-500 text-sm mt-1">{errors.project_name.message}</p>}
+            </div>
+            <div>
+              <label htmlFor="ai_provider" className="block text-sm font-medium text-gray-700 mb-1">AI Provider</label>
+            <Controller
+                name="ai_provider"
+              control={control}
+              render={({ field }) => (
+                  <select {...field} id="ai_provider" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-400 text-gray-900" aria-label="AI Provider">
+                    <option value="openai">OpenAI</option>
+                    <option value="anthropic">Anthropic</option>
+                    <option value="google">Google</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                )}
+              />
+              {errors.ai_provider && <p className="text-red-500 text-sm mt-1">{errors.ai_provider.message}</p>}
+            </div>
+            <div>
+              <label htmlFor="scan_mode" className="block text-sm font-medium text-gray-700 mb-1">Scan Mode</label>
+            <Controller
+                name="scan_mode"
+              control={control}
+              render={({ field }) => (
+                  <select {...field} id="scan_mode" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-400 text-gray-900" aria-label="Scan Mode">
+                    <option value="COMPREHENSIVE">Comprehensive</option>
+                    <option value="PROMPT_SECURITY">Prompt Security</option>
+                    <option value="API_SECURITY">API Security</option>
+                  </select>
+                )}
+              />
+              {errors.scan_mode && <p className="text-red-500 text-sm mt-1">{errors.scan_mode.message}</p>}
+            </div>
+          </div>
+        </div>
+        {/* Implementation Details */}
+        <div>
+          <h2 className="text-lg font-semibold text-gray-700 mb-4">Implementation Details</h2>
+          <label htmlFor="implementation_details.process_user_input" className="block text-sm font-medium text-gray-700 mb-1">process_user_input Function</label>
+            <Controller
+            name="implementation_details.process_user_input"
+              control={control}
+              render={({ field }) => (
+              <textarea {...field} id="implementation_details.process_user_input" className="w-full p-2 border rounded min-h-[120px] focus:ring-2 focus:ring-blue-400 text-gray-900" placeholder="Paste your process_user_input function here" aria-label="Implementation Details" />
             )}
-          </Box>
+          />
+          {errors.implementation_details?.process_user_input && <p className="text-red-500 text-sm mt-1">{errors.implementation_details.process_user_input.message}</p>}
+        </div>
+        {/* Config */}
+        <div>
+          <h2 className="text-lg font-semibold text-gray-700 mb-4">Model Config (JSON)</h2>
+          <label htmlFor="configs.json_config" className="block text-sm font-medium text-gray-700 mb-1">JSON Config</label>
+            <Controller
+            name="configs.json_config"
+              control={control}
+              render={({ field }) => (
+              <textarea {...field} id="configs.json_config" className="w-full p-2 border rounded min-h-[80px] focus:ring-2 focus:ring-blue-400 text-gray-900" placeholder="Paste your model config as a JSON string" aria-label="JSON Config" />
+            )}
+          />
+          {errors.configs?.json_config && <p className="text-red-500 text-sm mt-1">{errors.configs.json_config.message}</p>}
+        </div>
+        {/* Architecture Description */}
+        <div>
+          <h2 className="text-lg font-semibold text-gray-700 mb-4">Architecture Description</h2>
+          <label htmlFor="architecture_description" className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+            <Controller
+            name="architecture_description"
+              control={control}
+              render={({ field }) => (
+              <textarea {...field} id="architecture_description" className="w-full p-2 border rounded min-h-[80px] focus:ring-2 focus:ring-blue-400 text-gray-900" placeholder="Describe your AI system's architecture, deployment, and monitoring" aria-label="Architecture Description" />
+            )}
+          />
+          {errors.architecture_description && <p className="text-red-500 text-sm mt-1">{errors.architecture_description.message}</p>}
+        </div>
+        <div className="flex justify-end">
+          <button type="submit" className="px-6 py-2 rounded-full bg-blue-600 text-white font-semibold hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 transition text-lg shadow-md" disabled={isLoading} aria-label="Submit Assessment">
+            {isLoading ? "Submitting..." : "Submit Assessment"}
+          </button>
+        </div>
         </form>
-      </Box>
-
-      <StyledDialog
-        open={showExamplesDialog}
-        onClose={() => setShowExamplesDialog(false)}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle sx={{ color: "text.primary" }}>Test Data</DialogTitle>
-        <DialogContent>
-          <Tabs 
-            value={testDataTab} 
-            onChange={handleTestDataTabChange}
-            sx={{
-              "& .MuiTab-root": {
-                color: "text.secondary",
-                "&.Mui-selected": {
-                  color: "primary.main"
-                }
-              },
-              "& .MuiTabs-indicator": {
-                backgroundColor: "primary.main"
-              }
-            }}
-          >
-            <Tab label="Basic Info" />
-            <Tab label="Implementation" />
-            <Tab label="Security" />
-            <Tab label="Architecture" />
-          </Tabs>
-
-          <StyledTabPanel>
-            {testDataTab === 0 && (
-              <Box>
-                <Typography variant="h6" gutterBottom sx={{ color: "text.primary" }}>
-                  Basic Information
-                </Typography>
-                <SyntaxHighlighter language="json" style={vscDarkPlus}>
-                  {JSON.stringify({
-                    organizationName: exampleData.organizationName,
-                    projectName: exampleData.projectName,
-                    aiProvider: exampleData.aiProvider,
-                  }, null, 2)}
-                </SyntaxHighlighter>
-              </Box>
-            )}
-            {testDataTab === 1 && (
-              <Box>
-                <Typography variant="h6" gutterBottom sx={{ color: "text.primary" }}>
-                  Implementation Details
-                </Typography>
-                <SyntaxHighlighter language="javascript" style={vscDarkPlus}>
-                  {JSON.stringify(exampleData.implementationDetails, null, 2)}
-                </SyntaxHighlighter>
-              </Box>
-            )}
-            {testDataTab === 2 && (
-              <Box>
-                <Typography variant="h6" gutterBottom sx={{ color: "text.primary" }}>
-                  Security Configuration
-                </Typography>
-                <SyntaxHighlighter language="javascript" style={vscDarkPlus}>
-                  {JSON.stringify(exampleData.securityConfig, null, 2)}
-                </SyntaxHighlighter>
-              </Box>
-            )}
-            {testDataTab === 3 && (
-              <Box>
-                <Typography variant="h6" gutterBottom sx={{ color: "text.primary" }}>
-                  Architecture Details
-                </Typography>
-                <SyntaxHighlighter language="javascript" style={vscDarkPlus}>
-                  {JSON.stringify(exampleData.architecture, null, 2)}
-                </SyntaxHighlighter>
-              </Box>
-            )}
-          </StyledTabPanel>
-        </DialogContent>
-        <DialogActions>
-          <Button 
-            onClick={() => setShowExamplesDialog(false)}
-            sx={{
-              color: "text.secondary",
-              "&:hover": {
-                backgroundColor: "action.hover"
-              }
-            }}
-          >
-            Cancel
-          </Button>
-          <Button 
-            onClick={copyTestData} 
-            variant="contained"
-            sx={{
-              backgroundColor: "primary.main",
-              color: "primary.contrastText",
-              "&:hover": {
-                backgroundColor: "primary.dark"
-              }
-            }}
-          >
-            Copy to Form
-          </Button>
-        </DialogActions>
-      </StyledDialog>
-    </>
+    </div>
   );
 } 

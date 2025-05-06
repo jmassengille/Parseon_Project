@@ -54,9 +54,9 @@ class SecurityAssessmentService:
         # Risk weights for score calculation
         self.risk_weights = {
             RiskLevel.CRITICAL: 1.0,
-            RiskLevel.HIGH: 0.7,
-            RiskLevel.MEDIUM: 0.4,
-            RiskLevel.LOW: 0.1
+            RiskLevel.HIGH: 10.0,  # Massive penalty for HIGH findings
+            RiskLevel.MEDIUM: 0.7,
+            RiskLevel.LOW: 0.3
         }
         
         # Category weights for overall score
@@ -182,9 +182,20 @@ class SecurityAssessmentService:
             # Print summary of findings
             logger.info(f"Analysis complete - found {len(all_findings)} total findings")
             
-            # Note: We no longer need the separate _analyze_with_ai method
-            # since we're directly using the base model analyzer
+            # Filter out false-positive API key findings for env var references
+            def is_env_var_api_key_finding(finding):
+                if "api key" in finding.title.lower() and (
+                    any("OPENAI_API_KEY" in s for s in getattr(finding, 'code_snippets', [])) or
+                    "OPENAI_API_KEY" in finding.description
+                ):
+                    return True
+                return False
+            all_findings = [f for f in all_findings if not is_env_var_api_key_finding(f)]
             
+            # Update token usage BEFORE creating the result
+            self.token_usage["prompt_tokens"] += self.base_analyzer.token_usage["prompt_tokens"]
+            self.token_usage["completion_tokens"] += self.base_analyzer.token_usage["completion_tokens"]
+
             # Create the assessment result
             assessment_result = SecurityAssessmentResult(
                 organization_name=assessment_input.organization_name,
@@ -202,9 +213,6 @@ class SecurityAssessmentService:
             logger.info(f"Assessment result created with score: {assessment_result.overall_score}, risk level: {assessment_result.overall_risk_level}")
             logger.info(f"Found {len(all_findings)} vulnerabilities across {len(assessment_result.category_scores)} categories")
             
-            # Update token usage
-            self.token_usage["prompt_tokens"] += self.base_analyzer.token_usage["prompt_tokens"]
-            self.token_usage["completion_tokens"] += self.base_analyzer.token_usage["completion_tokens"]
             logger.debug(f"Token usage: {self.token_usage['prompt_tokens']} prompt, {self.token_usage['completion_tokens']} completion")
             
             # Return the assessment result
@@ -434,29 +442,25 @@ class SecurityAssessmentService:
 
     def _prioritize_actions(self, findings: List[VulnerabilityFinding]) -> List[str]:
         """Generate priority actions based on findings"""
-        priority_actions = []
-        
-        # Sort findings by severity and confidence
+        # Only include HIGH or CRITICAL findings
+        high_findings = [f for f in findings if f.severity in [RiskLevel.HIGH, RiskLevel.CRITICAL]]
+        if not high_findings:
+            return ["No high-priority actions required. Your AI implementation is secure."]
+        # Sort by severity and confidence
         sorted_findings = sorted(
-            findings,
+            high_findings,
             key=lambda f: (
                 RiskLevel.CRITICAL == f.severity,
-                RiskLevel.HIGH == f.severity,
-                RiskLevel.MEDIUM == f.severity,
                 f.confidence
             ),
             reverse=True
         )
-        
-        # Generate actions from the findings
+        priority_actions = []
         for finding in sorted_findings:
             action = f"[{finding.severity}] {finding.title}: {finding.recommendation[:100]}..."
             priority_actions.append(action)
-            
-            # Limit to 10 actions
             if len(priority_actions) >= 10:
                 break
-                
         return priority_actions
 
     async def initialize(self):

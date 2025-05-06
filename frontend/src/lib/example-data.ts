@@ -1,4 +1,4 @@
-import { AssessmentFormData, SecurityAssessmentInput, ScanMode } from '@/types/assessment';
+import { AssessmentFormData, ScanMode } from '@/types/assessment';
 
 export const exampleFormData: AssessmentFormData = {
   organizationName: "AI Security Corp",
@@ -72,34 +72,24 @@ Our LLM Chat Assistant uses a three-tier architecture:
   }
 };
 
-export function mapFormDataToApiInput(formData: AssessmentFormData): SecurityAssessmentInput {
+export function mapFormDataToApiInput(formData: any): any {
   return {
-    organization_name: formData.organizationName,
-    project_name: formData.projectName,
-    ai_provider: formData.aiProvider,
-    scan_mode: ScanMode.COMPREHENSIVE,
+    organization_name: formData.organization_name,
+    project_name: formData.project_name,
+    ai_provider: formData.ai_provider,
+    scan_mode: formData.scan_mode,
     implementation_details: {
-      process_function: formData.implementationDetails.mainImplementation,
-      prompt_handling: formData.implementationDetails.promptHandling,
-      error_handling: formData.implementationDetails.errorHandling
+      process_user_input: formData.implementation_details.process_user_input
     },
     configs: {
-      token_limits: formData.securityConfig.tokenLimits,
-      rate_limiting: formData.securityConfig.rateLimiting,
-      input_validation: formData.securityConfig.inputValidation
+      json_config: formData.configs.json_config
     },
-    architecture_description: [
-      formData.architecture.overview,
-      'Deployment: ' + formData.architecture.deployment,
-      'Monitoring: ' + formData.architecture.monitoring
-    ].join('\n\n'),
-    environment: 'production',
-    data_sensitivity: 'medium'
+    architecture_description: formData.architecture_description
   };
 }
 
 // Example of API input after transformation
-export const exampleApiInput: SecurityAssessmentInput = {
+export const exampleApiInput = {
   organization_name: "AI Security Corp",
   project_name: "LLM Chat Assistant",
   ai_provider: "OpenAI",
@@ -145,7 +135,7 @@ Basic LLM integration without proper security controls:
   data_sensitivity: "high"
 };
 
-export const exampleAssessmentInput: SecurityAssessmentInput = {
+export const exampleAssessmentInput = {
   organization_name: "Example Corp",
   project_name: "AI Security Demo",
   implementation_details: {
