@@ -1,13 +1,2 @@
-from datetime import datetime
-from sqlalchemy import Column, Integer, DateTime
-from app.db.session import Base
-
-if Base is None:
-    raise ImportError("Database is not configured. Cannot define ORM models.")
-
-class BaseModel(Base):
-    __abstract__ = True
-
-    id = Column(Integer, primary_key=True, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) 
+# All code in this file was strictly for ORM base model using SQLAlchemy.
+# Since the project no longer uses a database, this file is now empty and can be deleted if not needed elsewhere. 

@@ -1,10 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
-from sqlalchemy.orm import Session
 from app.schemas.assessment_input import SecurityAssessmentInput
 from app.schemas.assessment import SecurityAssessmentResult, SecurityScore
 from app.services.assessment_service import SecurityAssessmentService
-from app.crud.assessment import AssessmentCRUD
-from app.db.session import get_db, is_db_configured
 from app.core.exceptions import AssessmentError, ValidationError
 from app.core.rate_limiter import rate_limit, is_redis_configured
 from app.core.config import settings
@@ -121,91 +118,9 @@ async def assess_security(
     await service.initialize()
     result = await service.analyze_input(input_data)
     transformed_result = _transform_assessment_result(result)
-    if is_db_configured():
-        from app.db.session import get_db
-        from sqlalchemy.orm import Session
-        from app.crud.assessment import AssessmentCRUD
-        db: Session = next(get_db())
-        background_tasks.add_task(
-            store_assessment_result,
-            db=db,
-            result=result,
-            vector_store=vector_store
-        )
-        logger.info(f"Assessment completed and stored for {input_data.organization_name}/{input_data.project_name}")
-    else:
-        logger.warning("Database is not configured. Assessment result will not be stored.")
+    # Store in vector store if needed (no DB)
+    logger.info(f"Assessment completed for {input_data.organization_name}/{input_data.project_name} (no DB storage)")
     return transformed_result
-
-@router.get("/assessments/{assessment_id}", response_model=Dict[str, Any])
-async def get_assessment(
-    assessment_id: int,
-    _: None = rate_limit(requests=30, period=60) if is_redis_configured() else None  # 30 requests per minute for retrieval
-):
-    if not is_db_configured():
-        raise HTTPException(status_code=503, detail="Database is not configured. This endpoint is unavailable.")
-    from app.db.session import get_db
-    from sqlalchemy.orm import Session
-    from app.crud.assessment import AssessmentCRUD
-    db: Session = next(get_db())
-    try:
-        assessment = await AssessmentCRUD.get_assessment(db, assessment_id)
-        if not assessment:
-            raise HTTPException(status_code=404, detail="Assessment not found")
-        return _transform_assessment_result(assessment)
-    except Exception as e:
-        logger.error(f"Error retrieving assessment {assessment_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error retrieving assessment")
-
-@router.get("/assessments/organization/{organization_name}", response_model=List[Dict[str, Any]])
-async def get_organization_assessments(
-    organization_name: str,
-    skip: int = 0,
-    limit: int = 100,
-    _: None = rate_limit(requests=20, period=60) if is_redis_configured() else None  # 20 requests per minute for organization listings
-):
-    if not is_db_configured():
-        raise HTTPException(status_code=503, detail="Database is not configured. This endpoint is unavailable.")
-    from app.db.session import get_db
-    from sqlalchemy.orm import Session
-    from app.crud.assessment import AssessmentCRUD
-    db: Session = next(get_db())
-    try:
-        assessments = await AssessmentCRUD.get_assessments_by_org(
-            db,
-            organization_name,
-            skip=skip,
-            limit=limit
-        )
-        return [_transform_assessment_result(assessment) for assessment in assessments]
-    except Exception as e:
-        logger.error(f"Error retrieving assessments for {organization_name}: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error retrieving assessments")
-
-@router.get("/assessments/project/{project_name}", response_model=List[Dict[str, Any]])
-async def get_project_assessments(
-    project_name: str,
-    skip: int = 0,
-    limit: int = 100,
-    _: None = rate_limit(requests=20, period=60) if is_redis_configured() else None  # 20 requests per minute for project listings
-):
-    if not is_db_configured():
-        raise HTTPException(status_code=503, detail="Database is not configured. This endpoint is unavailable.")
-    from app.db.session import get_db
-    from sqlalchemy.orm import Session
-    from app.crud.assessment import AssessmentCRUD
-    db: Session = next(get_db())
-    try:
-        assessments = await AssessmentCRUD.get_assessments_by_project(
-            db,
-            project_name,
-            skip=skip,
-            limit=limit
-        )
-        return [_transform_assessment_result(assessment) for assessment in assessments]
-    except Exception as e:
-        logger.error(f"Error retrieving assessments for project {project_name}: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error retrieving assessments")
 
 @router.post("/search/similar", response_model=List[Dict[str, Any]])
 async def search_similar_findings(
@@ -265,17 +180,4 @@ async def search_similar_findings(
         
     except Exception as e:
         logger.error(f"Error searching for similar findings: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Error searching for similar findings")
-
-async def store_assessment_result(db: Session, result: SecurityAssessmentResult, vector_store: VectorStore = None):
-    """Store assessment result in the database and vector store"""
-    try:
-        # Initialize assessment service
-        service = SecurityAssessmentService()
-        await service.initialize()
-        
-        # Store the assessment
-        await service.store_assessment_result(result, db, vector_store)
-    except Exception as e:
-        logger.error(f"Error storing assessment result: {str(e)}", exc_info=True)
-        # Don't raise the exception as this is a background task 
+        raise HTTPException(status_code=500, detail="Error searching for similar findings") 

@@ -253,13 +253,31 @@ export default function AssessmentResults({ results, onSubmitAnother }: Assessme
   return (
     <Box sx={{ background: '#fafbfc', minHeight: '100vh', py: 4 }}>
       <Paper elevation={0} sx={{ maxWidth: 900, mx: 'auto', p: { xs: 2, md: 4 }, borderRadius: 4, border: '1.5px solid #e0e0e0', background: '#fff', position: 'relative' }}>
-        {/* Submit Another Report Button */}
-        <Box sx={{ position: 'absolute', top: 24, right: 24 }}>
+        {/* Submit Another Report Button - Desktop */}
+        <Box sx={{ position: 'absolute', top: 24, right: 24, display: { xs: 'none', md: 'block' } }}>
           <Button
             variant="outlined"
             color="primary"
             onClick={onSubmitAnother}
+            aria-label="Submit Another Report"
+            tabIndex={0}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { onSubmitAnother?.(); } }}
             sx={{ borderRadius: 2, fontWeight: 600, px: 3, textTransform: 'none', borderWidth: 2, '&:hover': { borderWidth: 2 } }}
+          >
+            Submit Another Report
+          </Button>
+        </Box>
+        {/* Submit Another Report Button - Mobile */}
+        <Box sx={{ display: { xs: 'block', md: 'none' }, mt: 1, mb: 2 }}>
+          <Button
+            variant="outlined"
+            color="primary"
+            onClick={onSubmitAnother}
+            aria-label="Submit Another Report"
+            tabIndex={0}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { onSubmitAnother?.(); } }}
+            fullWidth
+            sx={{ borderRadius: 2, fontWeight: 600, py: 1.5, textTransform: 'none', borderWidth: 2, '&:hover': { borderWidth: 2 } }}
           >
             Submit Another Report
           </Button>

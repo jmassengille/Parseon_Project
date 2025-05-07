@@ -19,7 +19,6 @@ import json
 import logging
 from pydantic import ValidationError
 import re
-from sqlalchemy.orm import Session
 from app.services.embeddings_service import EmbeddingsService
 from app.services.vector_store import VectorStore
 
@@ -53,7 +52,7 @@ class SecurityAssessmentService:
         # Risk weights for score calculation
         self.risk_weights = {
             RiskLevel.CRITICAL: 1.0,
-            RiskLevel.HIGH: 10.0,  # Massive penalty for HIGH findings
+            RiskLevel.HIGH: 6.0,  # Massive penalty for HIGH findings
             RiskLevel.MEDIUM: 0.7,
             RiskLevel.LOW: 0.3
         }
@@ -472,23 +471,6 @@ class SecurityAssessmentService:
             
         except Exception as e:
             logger.error(f"Error initializing security assessment service: {str(e)}")
-            raise
-
-    async def store_assessment_result(self, result: SecurityAssessmentResult, db: Session, vector_store: VectorStore = None) -> None:
-        """Store assessment result in the database and vector store"""
-        try:
-            # Store in relational database
-            assessment_crud = AssessmentCRUD(db)
-            db_result = await assessment_crud.create_assessment(result)
-            
-            # Store vulnerabilities in vector database if available
-            if vector_store:
-                await self._store_vulnerabilities_in_vector_db(vector_store, result.vulnerabilities)
-                
-            logger.info(f"Stored assessment result with ID: {db_result.id}")
-            
-        except Exception as e:
-            logger.error(f"Error storing assessment result: {str(e)}")
             raise
 
     async def _store_vulnerabilities_in_vector_db(self, vector_store: VectorStore, vulnerabilities: List[VulnerabilityFinding]) -> None:
