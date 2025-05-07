@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 import os
 import sys
+import traceback
 
 # Configure logging
 logging.basicConfig(
@@ -85,6 +86,7 @@ try:
     logger.info("API router loaded successfully")
 except Exception as e:
     logger.error(f"Error including API router: {str(e)}")
+    logger.error(traceback.format_exc())
 
 @app.get("/")
 async def root():
