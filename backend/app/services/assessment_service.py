@@ -21,8 +21,19 @@ from pydantic import ValidationError
 import re
 from app.services.embeddings_service import EmbeddingsService
 from app.services.vector_store import VectorStore
+import asyncio
 
 logger = logging.getLogger(__name__)
+
+# Global services for singleton pattern to avoid repeated initialization
+_embedding_service = None
+_base_analyzer = None
+_finding_validator = None
+
+# Configurable timeout settings with reasonable defaults
+ANALYSIS_TIMEOUT = int(os.getenv("ASSESSMENT_TIMEOUT_SECONDS", "60"))  # Default 60 seconds for total assessment
+VALIDATION_TIMEOUT = int(os.getenv("VALIDATION_TIMEOUT_SECONDS", "10"))  # Default 10 seconds for validation
+API_CALL_TIMEOUT = int(os.getenv("API_CALL_TIMEOUT_SECONDS", "30"))  # Default 30 seconds for API call
 
 class SecurityAssessmentService:
     """
@@ -38,23 +49,19 @@ class SecurityAssessmentService:
     
     def __init__(self):
         load_dotenv()
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.model = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo-16k")
+        self.client = AsyncOpenAI(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            timeout=API_CALL_TIMEOUT  # Use configurable timeout
+        )
+        self.model = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
         self.token_usage = {"prompt_tokens": 0, "completion_tokens": 0}
-        
-        # Replace AI analyzer with base model analyzer
-        self.base_analyzer = BaseModelAnalyzer()
-        
-        # Replace grounding system with finding validator
-        self.knowledge_base = KnowledgeBase()
-        self.finding_validator = FindingValidator(knowledge_base=self.knowledge_base)
         
         # Risk weights for score calculation
         self.risk_weights = {
-            RiskLevel.CRITICAL: 1.0,
-            RiskLevel.HIGH: 6.0,  # Massive penalty for HIGH findings
-            RiskLevel.MEDIUM: 0.7,
-            RiskLevel.LOW: 0.3
+            RiskLevel.CRITICAL: 15.0,  # Increased from 1.0
+            RiskLevel.HIGH: 12.0,      # Increased from 6.0
+            RiskLevel.MEDIUM: 3.0,     # Increased from 0.7
+            RiskLevel.LOW: 1.0         # Increased from 0.3
         }
         
         # Category weights for overall score
@@ -64,38 +71,53 @@ class SecurityAssessmentService:
             SecurityCategory.CONFIGURATION: 0.15,
             SecurityCategory.ERROR_HANDLING: 0.15
         }
-
-    def _is_similar_finding(self, finding1: VulnerabilityFinding, finding2: VulnerabilityFinding) -> bool:
-        """Check if two findings are semantically similar"""
-        # Check if they're in the same category
-        if finding1.category != finding2.category:
-            return False
-            
-        # Check for exact title match
-        if finding1.title == finding2.title:
-            return True
-            
-        # Check for semantic similarity in titles
-        title1 = finding1.title.lower()
-        title2 = finding2.title.lower()
         
-        # Common variations to check
-        variations = {
-            "rate limit": ["rate limiting", "rate limiting controls", "rate limiting mechanism"],
-            "input validation": ["input validation", "input sanitization", "input verification"],
-            "error handling": ["error handling", "exception handling", "error management"],
-            "authentication": ["authentication", "auth", "authentication mechanism"],
-            "authorization": ["authorization", "access control", "permission"],
-            "api key": ["api key", "api keys", "api token", "api tokens"],
-            "model configuration": ["model configuration", "model settings", "model parameters"]
-        }
+        # Store initialized flag for lazy initialization
+        self.initialized = False
+    
+    async def _ensure_initialized(self):
+        """Lazily initialize services only when needed"""
+        global _embedding_service, _base_analyzer, _finding_validator
         
-        # Check if titles contain similar key phrases
-        for key, values in variations.items():
-            if any(v in title1 for v in values) and any(v in title2 for v in values):
-                return True
+        if not self.initialized:
+            # Use global services if available, otherwise create them
+            if _base_analyzer is None:
+                _base_analyzer = BaseModelAnalyzer()
+            self.base_analyzer = _base_analyzer
+            
+            # Initialize finding validator with knowledge base (if needed)
+            if _finding_validator is None:
+                # Skip KB initialization to improve speed
+                empty_kb = KnowledgeBase()
+                _finding_validator = FindingValidator(knowledge_base=empty_kb)
                 
-        return False
+                # Initialize embedding service (only once)
+                if _embedding_service is None:
+                    _embedding_service = EmbeddingsService()
+                    await _embedding_service.initialize()
+                
+                # Initialize validator with existing embedding service
+                await _finding_validator.initialize()
+            
+            self.finding_validator = _finding_validator
+            self.initialized = True
+
+    def _set_category_weights_for_mode(self, scan_mode: Optional[ScanMode]):
+        """Adjust category weights based on scan mode"""
+        if scan_mode == ScanMode.API_SECURITY:
+            self.category_weights = {
+                SecurityCategory.API_SECURITY: 0.60,
+                SecurityCategory.PROMPT_SECURITY: 0.20,
+                SecurityCategory.CONFIGURATION: 0.10,
+                SecurityCategory.ERROR_HANDLING: 0.10
+            }
+        elif scan_mode == ScanMode.PROMPT_SECURITY:
+            self.category_weights = {
+                SecurityCategory.API_SECURITY: 0.20,
+                SecurityCategory.PROMPT_SECURITY: 0.60,
+                SecurityCategory.CONFIGURATION: 0.10,
+                SecurityCategory.ERROR_HANDLING: 0.10
+            }
 
     async def analyze_input(self, assessment_input: SecurityAssessmentInput) -> SecurityAssessmentResult:
         """
@@ -112,7 +134,18 @@ class SecurityAssessmentService:
             ValueError: If required fields are missing
             Exception: For other processing errors
         """
+        start_time = datetime.now()
+        
         try:
+            # Set a reasonable timeout for this analysis
+            analysis_timeout = ANALYSIS_TIMEOUT  # Use configurable timeout
+            
+            # Log assessment start
+            logger.info(f"Starting assessment for {assessment_input.organization_name}/{assessment_input.project_name}")
+            
+            # Lazy initialization of services to improve startup time
+            await self._ensure_initialized()
+            
             # Validate input
             self._validate_input(assessment_input)
             
@@ -122,63 +155,121 @@ class SecurityAssessmentService:
             # Initialize findings lists
             all_findings = []
             
-            # Initialize finding validator
-            await self.finding_validator.initialize()
+            # Create tasks for parallel processing
+            tasks = []
             
-            # Analyze implementation details using base analyzer
+            # Process implementation details (API/code)
+            code_count = 0
             if assessment_input.implementation_details:
-                logger.info("Starting implementation details analysis")
                 for component, code in assessment_input.implementation_details.items():
-                    logger.info(f"Analyzing component: {component}")
-                    
-                    # Get findings from base model analysis
-                    findings = await self.base_analyzer.analyze_code(code, component)
-                    
-                    # Validate findings against known patterns
-                    validated_findings = await self.finding_validator.validate_findings(findings)
-                    
-                    logger.info(f"Found {len(validated_findings)} issues in {component}")
-                    for f in validated_findings:
-                        validation_status = "✓" if f.validation_info and f.validation_info.get("validated", False) else "?"
-                        logger.info(f"Finding: {f.title} ({f.severity}) - confidence: {f.confidence} validation: {validation_status}")
+                    # Skip empty code
+                    if not code or len(code.strip()) < 10:
+                        continue
                         
-                    # Add to all findings, checking for duplicates
-                    for finding in validated_findings:
-                        if not any(self._is_similar_finding(finding, existing) for existing in all_findings):
-                            all_findings.append(finding)
-                        else:
-                            logger.info(f"Skipping duplicate finding: {finding.title}")
-                            
-                logger.info("Completed implementation details analysis")
+                    # Skip if code is too large (over 30KB)
+                    if len(code) > 30000:
+                        logger.warning(f"Skipping {component} as it exceeds size limit (size: {len(code)})")
+                        continue
+                    
+                    # Limit the number of code components to analyze to prevent memory issues on Railway
+                    code_count += 1
+                    if code_count > 5:  # Only analyze up to 5 code components
+                        logger.warning(f"Skipping remaining code components after {code_count-1} to conserve memory")
+                        break
+                    
+                    # Add task for code analysis
+                    task = self.base_analyzer.analyze_code(code, component)
+                    tasks.append(task)
             
-            # Analyze configuration using base analyzer
+            # Process configs
+            config_count = 0
             if assessment_input.configs:
-                logger.info("Starting configuration analysis")
-                for config_type, config_content in assessment_input.configs.items():
-                    logger.info(f"Analyzing config: {config_type}")
+                for config_type, content in assessment_input.configs.items():
+                    # Skip empty configs
+                    if not content or len(content.strip()) < 10:
+                        continue
                     
-                    # Get findings from base model analysis
-                    findings = await self.base_analyzer.analyze_config(config_content)
+                    # Skip if content is too large
+                    if len(content) > 30000:
+                        logger.warning(f"Skipping config {config_type} as it exceeds size limit (size: {len(content)})")
+                        continue
                     
-                    # Validate findings against known patterns
-                    validated_findings = await self.finding_validator.validate_findings(findings)
+                    # Limit the number of config files to analyze
+                    config_count += 1
+                    if config_count > 3:  # Only analyze up to 3 config files
+                        logger.warning(f"Skipping remaining config files after {config_count-1} to conserve memory")
+                        break
                     
-                    logger.info(f"Found {len(validated_findings)} issues in {config_type} config")
-                    for f in validated_findings:
-                        validation_status = "✓" if f.validation_info and f.validation_info.get("validated", False) else "?"
-                        logger.info(f"Finding: {f.title} ({f.severity}) - confidence: {f.confidence} validation: {validation_status}")
-                        
-                    # Add to all findings, checking for duplicates
-                    for finding in validated_findings:
-                        if not any(self._is_similar_finding(finding, existing) for existing in all_findings):
-                            all_findings.append(finding)
-                        else:
-                            logger.info(f"Skipping duplicate finding: {finding.title}")
-                            
-                logger.info("Completed configuration analysis")
+                    # Add task for config analysis
+                    task = self.base_analyzer.analyze_config(content)
+                    tasks.append(task)
             
-            # Print summary of findings
-            logger.info(f"Analysis complete - found {len(all_findings)} total findings")
+            # Run all analysis tasks in parallel with a timeout
+            if tasks:
+                try:
+                    # Use asyncio.wait_for to set a global timeout for all tasks
+                    findings_lists = await asyncio.wait_for(
+                        asyncio.gather(*tasks),
+                        timeout=analysis_timeout
+                    )
+                    
+                    # Combine all findings
+                    for findings in findings_lists:
+                        all_findings.extend(findings)
+                except asyncio.TimeoutError:
+                    logger.warning(f"Analysis timed out after {analysis_timeout} seconds. Proceeding with partial results.")
+                    # Try to get any completed results
+                    for task in tasks:
+                        if task.done() and not task.exception():
+                            try:
+                                findings = task.result()
+                                all_findings.extend(findings)
+                            except Exception as e:
+                                logger.error(f"Error getting task result: {str(e)}")
+                except MemoryError:
+                    logger.error("Memory limit exceeded during analysis. Proceeding with partial results.")
+                    # Try to get any completed results
+                    for task in tasks:
+                        if task.done() and not task.exception():
+                            try:
+                                findings = task.result()
+                                all_findings.extend(findings)
+                            except Exception as e:
+                                logger.error(f"Error getting task result: {str(e)}")
+            
+            # Deduplicate findings based on title
+            all_findings = self._deduplicate_findings(all_findings)
+            
+            # Only validate findings if we have at least one
+            # And limit to 20 max findings to validate to save time
+            if all_findings:
+                # Sort by severity first
+                severity_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+                all_findings = sorted(
+                    all_findings,
+                    key=lambda f: severity_order.get(f.severity.upper(), 4)
+                )
+                
+                # Take at most 20 findings to validate (prioritizing by severity)
+                findings_to_validate = all_findings[:20]
+                if len(findings_to_validate) < len(all_findings):
+                    logger.info(f"Limiting validation to {len(findings_to_validate)} out of {len(all_findings)} findings")
+                
+                # Use fast_mode if more than 10 findings to validate or if we've already spent a lot of time
+                use_fast_mode = len(findings_to_validate) > 10
+                try:
+                    validated_findings = await asyncio.wait_for(
+                        self.finding_validator.validate_findings(findings_to_validate, fast_mode=use_fast_mode),
+                        timeout=VALIDATION_TIMEOUT  # Use configurable timeout
+                    )
+                    
+                    # Replace the findings we validated
+                    for i, finding in enumerate(validated_findings):
+                        all_findings[i] = finding
+                except asyncio.TimeoutError:
+                    logger.warning(f"Validation timed out after {VALIDATION_TIMEOUT} seconds. Proceeding with unvalidated findings.")
+                except Exception as e:
+                    logger.error(f"Error during validation: {str(e)}. Proceeding with unvalidated findings.")
             
             # Filter out false-positive API key findings for env var references
             def is_env_var_api_key_finding(finding):
@@ -193,22 +284,36 @@ class SecurityAssessmentService:
             # Update token usage BEFORE creating the result
             self.token_usage["prompt_tokens"] += self.base_analyzer.token_usage["prompt_tokens"]
             self.token_usage["completion_tokens"] += self.base_analyzer.token_usage["completion_tokens"]
+            
+            # Calculate category scores first
+            category_scores = self._calculate_category_scores(all_findings)
+            
+            # Then calculate overall score based on weighted category scores
+            overall_score = self._calculate_weighted_score(category_scores)
+            
+            # Calculate risk level based on the overall score
+            risk_level = self._calculate_risk_level(overall_score)
 
             # Create the assessment result
             assessment_result = SecurityAssessmentResult(
                 organization_name=assessment_input.organization_name,
                 project_name=assessment_input.project_name,
                 timestamp=datetime.now(),
-                overall_score=self._calculate_overall_score(all_findings),
-                overall_risk_level=self._calculate_risk_level(self._calculate_overall_score(all_findings)),
+                overall_score=overall_score,
+                overall_risk_level=risk_level,
                 vulnerabilities=all_findings,
-                category_scores=self._calculate_category_scores(all_findings),
+                category_scores=category_scores,
                 priority_actions=self._prioritize_actions(all_findings),
                 ai_model_used=self.model,
                 token_usage=self.token_usage
             )
             
-            logger.info(f"Assessment result created with score: {assessment_result.overall_score}, risk level: {assessment_result.overall_risk_level}")
+            # Calculate processing time
+            end_time = datetime.now()
+            duration_seconds = (end_time - start_time).total_seconds()
+            
+            logger.info(f"Assessment completed for {assessment_input.organization_name}/{assessment_input.project_name} in {duration_seconds:.1f} seconds")
+            logger.info(f"Assessment result: score={assessment_result.overall_score}, risk level={assessment_result.overall_risk_level}")
             logger.info(f"Found {len(all_findings)} vulnerabilities across {len(assessment_result.category_scores)} categories")
             
             logger.debug(f"Token usage: {self.token_usage['prompt_tokens']} prompt, {self.token_usage['completion_tokens']} completion")
@@ -217,7 +322,32 @@ class SecurityAssessmentService:
             return assessment_result
             
         except Exception as e:
-            logger.error(f"Error in security assessment: {str(e)}")
+            # Calculate processing time even for failures
+            end_time = datetime.now()
+            duration_seconds = (end_time - start_time).total_seconds()
+            
+            logger.error(f"Error in security assessment after {duration_seconds:.1f} seconds: {str(e)}")
+            logger.error(f"Stack trace:", exc_info=True)
+            
+            # If it's a Railway deployment limitation, provide a more specific error
+            if "ConnectionResetError" in str(e) or "ConnectTimeout" in str(e):
+                raise AssessmentError(
+                    message="Connection error while performing assessment. This may be due to server load or network issues.",
+                    status_code=503
+                )
+            # If it's a memory limit issue
+            elif "MemoryError" in str(e) or "ResourceExhaustedError" in str(e):
+                raise AssessmentError(
+                    message="Memory limit exceeded during assessment. Please try again with a smaller input or fewer components.",
+                    status_code=413
+                )
+            # If it's a timeout
+            elif "TimeoutError" in str(e) or "asyncio.exceptions.TimeoutError" in str(e):
+                raise AssessmentError(
+                    message="Assessment timed out. Please try again with a smaller input or fewer components.",
+                    status_code=504
+                )
+            # Re-raise the original exception
             raise
 
     def _validate_input(self, input_data: SecurityAssessmentInput) -> None:
@@ -240,233 +370,159 @@ class SecurityAssessmentService:
                 if not code:
                     raise ValueError(f"Empty code for component: {component}")
 
-    def _prepare_analysis_context(self, input_data: SecurityAssessmentInput) -> str:
-        """Prepare comprehensive context for AI analysis"""
-        context_parts = []
-        
-        # Add organization and project info
-        context_parts.append(f"Organization: {input_data.organization_name}")
-        context_parts.append(f"Project: {input_data.project_name}")
-        
-        # Add configuration details
-        if input_data.configs:
-            context_parts.append("\nConfiguration Details:")
-            for config_type, content in input_data.configs.items():
-                context_parts.append(f"\n{config_type.value}:")
-                context_parts.append(content)
-        
-        # Add implementation details
-        if input_data.implementation_details:
-            context_parts.append("\nImplementation Details:")
-            for component, code in input_data.implementation_details.items():
-                context_parts.append(f"\n{component}:")
-                context_parts.append(code)
-        
-        # Add architecture description
-        if input_data.architecture_description:
-            context_parts.append("\nArchitecture Description:")
-            context_parts.append(input_data.architecture_description)
-        
-        return "\n".join(context_parts)
-
-    def _sanitize_category(self, category: str) -> str:
-        """Sanitize category string to an expected enum value"""
-        category_mapping = {
-            "prompt": "PROMPT_SECURITY",
-            "prompt_security": "PROMPT_SECURITY",
-            "prompt security": "PROMPT_SECURITY",
-            "injection": "PROMPT_SECURITY",
-            "prompt injection": "PROMPT_SECURITY",
-            
-            "api": "API_SECURITY",
-            "api_security": "API_SECURITY",
-            "api security": "API_SECURITY",
-            "authentication": "API_SECURITY",
-            "authorization": "API_SECURITY",
-            
-            "config": "CONFIGURATION",
-            "configuration": "CONFIGURATION",
-            "settings": "CONFIGURATION",
-            
-            "error": "ERROR_HANDLING",
-            "error_handling": "ERROR_HANDLING",
-            "exception": "ERROR_HANDLING"
-        }
-        
-        category_lower = category.lower()
-        
-        # Try direct matches
-        for pattern, mapped_value in category_mapping.items():
-            if pattern in category_lower:
-                return mapped_value
-                
-        # Default to API_SECURITY
-        return "API_SECURITY"
-
-    def _sanitize_severity(self, severity: str) -> str:
-        """Sanitize severity string to an expected enum value"""
-        severity_mapping = {
-            "critical": "CRITICAL",
-            "high": "HIGH",
-            "severe": "HIGH",
-            "medium": "MEDIUM",
-            "moderate": "MEDIUM",
-            "low": "LOW",
-            "minor": "LOW",
-            "info": "LOW",
-            "informational": "LOW"
-        }
-        
-        severity_lower = severity.lower()
-        
-        # Try direct matches
-        for pattern, mapped_value in severity_mapping.items():
-            if pattern in severity_lower:
-                return mapped_value
-                
-        # Default to MEDIUM
-        return "MEDIUM"
-
-    def _set_category_weights_for_mode(self, scan_mode: ScanMode) -> None:
-        """Adjust category weights based on the scan mode"""
-        if scan_mode == ScanMode.PROMPT_SECURITY:
-            self.category_weights = {
-                SecurityCategory.API_SECURITY: 0.15,
-                SecurityCategory.PROMPT_SECURITY: 0.65,  # Increased weight
-                SecurityCategory.CONFIGURATION: 0.1,
-                SecurityCategory.ERROR_HANDLING: 0.1
-            }
-        elif scan_mode == ScanMode.API_SECURITY:
-            self.category_weights = {
-                SecurityCategory.API_SECURITY: 0.65,  # Increased weight
-                SecurityCategory.PROMPT_SECURITY: 0.15,
-                SecurityCategory.CONFIGURATION: 0.1,
-                SecurityCategory.ERROR_HANDLING: 0.1
-            }
-        else:  # COMPREHENSIVE mode
-            self.category_weights = {
-                SecurityCategory.API_SECURITY: 0.35,
-                SecurityCategory.PROMPT_SECURITY: 0.35,
-                SecurityCategory.CONFIGURATION: 0.15,
-                SecurityCategory.ERROR_HANDLING: 0.15
-            }
-
     def _calculate_overall_score(self, findings: List[VulnerabilityFinding]) -> float:
         """Calculate overall security score based on findings"""
-        # Start with a perfect score
-        base_score = 100
+        if not findings:
+            return 95.0  # No findings = excellent score
+            
+        base_score = 100.0
         
-        # Calculate penalty for each finding
-        total_penalty = 0
+        # Calculate penalty for each finding based on severity
         for finding in findings:
-            severity = finding.severity
+            # Get the risk weight for this severity
+            risk_weight = self.risk_weights.get(finding.severity, 0.5)
             
-            # Get the severity weight
-            risk_weight = self.risk_weights.get(severity, 0.5)
+            # Calculate penalty - adjusted by confidence
+            penalty = risk_weight * finding.confidence * 3.0
             
-            # Get the category weight
-            category_weight = self.category_weights.get(finding.category, 0.25)
+            # Apply penalty
+            base_score -= penalty
             
-            # Calculate penalty based on severity and category weights
-            penalty = 10 * risk_weight * category_weight * finding.confidence
-            total_penalty += penalty
+        # Ensure score is between 0 and 100
+        return max(0.0, min(100.0, base_score))
+
+    def _calculate_weighted_score(self, category_scores: Dict[SecurityCategory, SecurityScore]) -> float:
+        """Calculate overall score based on weighted category scores"""
+        if not category_scores:
+            return 95.0  # No categories = excellent score
+            
+        total_weight = 0.0
+        weighted_sum = 0.0
         
-        # Apply penalty to base score
-        final_score = max(0, base_score - total_penalty)
+        # Calculate weighted sum of category scores
+        for category, score in category_scores.items():
+            weight = self.category_weights.get(category, 0.0)
+            total_weight += weight
+            weighted_sum += score.score * weight
         
-        return round(final_score, 1)
+        # If no weights, return simple average
+        if total_weight == 0:
+            return sum(score.score for score in category_scores.values()) / len(category_scores)
+            
+        # Calculate weighted average
+        weighted_average = weighted_sum / total_weight
+        
+        # Ensure score is between 0 and 100
+        return max(0.0, min(100.0, weighted_average))
 
     def _calculate_risk_level(self, score: float) -> RiskLevel:
-        """Determine overall risk level based on score"""
-        if score < 50:
-            return RiskLevel.CRITICAL
-        elif score < 70:
-            return RiskLevel.HIGH
-        elif score < 85:
-            return RiskLevel.MEDIUM
-        else:
+        """Calculate overall risk level based on score"""
+        if score >= 85:
             return RiskLevel.LOW
+        elif score >= 65:
+            return RiskLevel.MEDIUM
+        elif score >= 35:
+            return RiskLevel.HIGH
+        else:
+            return RiskLevel.CRITICAL
 
-    def _calculate_category_scores(self, findings: List[VulnerabilityFinding]) -> Dict[str, SecurityScore]:
-        """Calculate security scores for each category"""
+    def _calculate_category_scores(self, findings: List[VulnerabilityFinding]) -> Dict[SecurityCategory, SecurityScore]:
+        """Calculate scores for each security category"""
         category_scores = {}
         
-        # Initialize scores for each category
+        # Initialize scores for all categories
         for category in SecurityCategory:
-            category_scores[category] = {
-                "score": 100,  # Start with perfect score
-                "findings": [],
-                "recommendations": []
-            }
+            category_scores[category] = SecurityScore(
+                category=category,
+                score=100.0,
+                weight=self.category_weights.get(category, 0.0)
+            )
+            
+        # Track issues found separately
+        issues_count = {category: 0 for category in SecurityCategory}
         
-        # Apply penalty for each finding
+        # Process each finding
         for finding in findings:
             category = finding.category
             
-            # Get the severity weight
+            # Skip if category not recognized
+            if category not in category_scores:
+                continue
+                
+            # Get the score for this category
+            score = category_scores[category]
+            
+            # Get the risk weight for this severity
             risk_weight = self.risk_weights.get(finding.severity, 0.5)
             
-            # Calculate penalty based on severity
-            penalty = 10 * risk_weight * finding.confidence
+            # Calculate penalty - adjusted by confidence
+            penalty = risk_weight * finding.confidence * 4.0  # Higher than overall score multiplier
             
-            # Ensure category exists in the dictionary
-            if category not in category_scores:
-                category_scores[category] = {
-                    "score": 100,
-                    "findings": [],
-                    "recommendations": []
-                }
-                
-            # Apply penalty to the category score
-            category_scores[category]["score"] = max(0, category_scores[category]["score"] - penalty)
+            # Increment issues found in our tracking dictionary
+            issues_count[category] += 1
             
-            # Add finding title to the category
-            category_scores[category]["findings"].append(finding.title)
+            # Apply penalty
+            score.score = max(0.0, score.score - penalty)
             
-            # Add recommendation to the category
-            if finding.recommendation and finding.recommendation not in category_scores[category]["recommendations"]:
-                category_scores[category]["recommendations"].append(finding.recommendation)
+            # Add findings to the score object
+            if issues_count[category] <= 5:  # Limit to 5 findings per category
+                score.findings.append(finding.title)
         
-        # Convert to SecurityScore objects
-        result = {}
-        for category, data in category_scores.items():
-            result[category] = SecurityScore(
-                score=round(data["score"], 1),
-                findings=data["findings"],
-                recommendations=data["recommendations"]
-            )
-            
-        return result
+        return category_scores
 
     def _prioritize_actions(self, findings: List[VulnerabilityFinding]) -> List[str]:
-        """Generate priority actions based on findings"""
-        # Only include HIGH or CRITICAL findings
-        high_findings = [f for f in findings if f.severity in [RiskLevel.HIGH, RiskLevel.CRITICAL]]
-        if not high_findings:
-            return ["No high-priority actions required. Your AI implementation is secure."]
-        # Sort by severity and confidence
+        """Create prioritized action items from findings"""
+        if not findings:
+            return []
+            
+        # Sort findings by severity and confidence
         sorted_findings = sorted(
-            high_findings,
+            findings, 
             key=lambda f: (
-                RiskLevel.CRITICAL == f.severity,
-                f.confidence
-            ),
-            reverse=True
+                0 if f.severity == RiskLevel.CRITICAL else
+                1 if f.severity == RiskLevel.HIGH else
+                2 if f.severity == RiskLevel.MEDIUM else 3,
+                -f.confidence
+            )
         )
+        
+        # Create priority actions (limit to top 5)
         priority_actions = []
-        for finding in sorted_findings:
-            action = f"[{finding.severity}] {finding.title}: {finding.recommendation[:100]}..."
-            priority_actions.append(action)
-            if len(priority_actions) >= 10:
-                break
+        for i, finding in enumerate(sorted_findings[:5]):
+            # Format as a string instead of dictionary
+            action_string = f"[{finding.severity}] {finding.title}: {finding.recommendation}"
+            priority_actions.append(action_string)
+            
         return priority_actions
+    
+    def _deduplicate_findings(self, findings: List[VulnerabilityFinding]) -> List[VulnerabilityFinding]:
+        """Remove duplicate findings based on title/description similarity"""
+        if not findings or len(findings) <= 1:
+            return findings
+            
+        # Use a set to track unique finding titles
+        unique_titles = set()
+        unique_findings = []
+        
+        for finding in findings:
+            # Create a normalized version of the title
+            normalized_title = re.sub(r'\s+', ' ', finding.title.lower().strip())
+            
+            # Skip if we've seen this title before
+            if normalized_title in unique_titles:
+                continue
+                
+            # Add to unique findings and title set
+            unique_titles.add(normalized_title)
+            unique_findings.append(finding)
+            
+        return unique_findings
 
     async def initialize(self):
         """Initialize services"""
         try:
-            # Initialize the finding validator
-            await self.finding_validator.initialize()
-            
+            # Call _ensure_initialized() instead of directly accessing finding_validator
+            await self._ensure_initialized()
             logger.info("Security assessment service initialized")
             
         except Exception as e:

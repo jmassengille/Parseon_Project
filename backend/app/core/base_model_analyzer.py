@@ -20,80 +20,53 @@ class BaseModelAnalyzer:
     
     def __init__(self):
         """Initialize with OpenAI client"""
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.model = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo-16k")
+        # Use timeout to prevent hanging API calls
+        self.client = AsyncOpenAI(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            timeout=60.0  # 60 second timeout for API calls
+        )
+        # Default to faster model if not specified
+        self.model = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
         self.token_usage = {"prompt_tokens": 0, "completion_tokens": 0}
     
     async def analyze_code(self, code: str, context: str) -> List[VulnerabilityFinding]:
         """Analyze code for AI security vulnerabilities using the base model"""
-        print(f"\n---- DEBUG: Base model analysis for {context} ----")
         
         system_prompt = (
-            "You are an expert AI security auditor. Review the following code for any possible, theoretical, or even minor AI security vulnerabilities. "
-            "Consider prompt injection, lack of input validation, insecure configuration, excessive permissions, or any other risk. "
-            "Use your full reasoning and creativity. Err on the side of caution: if there is any doubt, report a potential vulnerability. "
-            "Do not flag API keys that are environment variable references (e.g., OPENAI_API_KEY) as vulnerabilities. Only flag hardcoded secrets if the value starts with 'sk-' or looks like a real secret. "
-            "If rate limiting logic is present, even as a stub or placeholder (e.g., allow_request), do not flag as a vulnerability unless there is no rate limiting logic at all. "
-            "If input validation and sanitization are present, do not flag unless there is clear evidence of missing or weak validation. "
-            "Respond with a JSON array of findings, and you may include a brief narrative summary before the JSON if you wish. "
-            "Each finding should include: title, description, severity, category, code_snippet, recommendation."
+            "You are an AI security auditor analyzing code for vulnerabilities. Respond with JSON containing an array of findings. "
+            "Each finding must include: title, description, severity (LOW/MEDIUM/HIGH/CRITICAL), category, code_snippet, recommendation. "
+            "Only report actual security issues. Ignore API keys that use environment variables. "
+            "Focus on: prompt injection, lack of input validation, insecure configuration, rate limiting, error handling."
         )
         
         user_prompt = (
-            f"Here is a real-world code sample from an AI-integrated application. "
-            f"Please identify and describe all possible security vulnerabilities, even if they are only potential or minor risks. "
-            f"Use your best judgment and be thorough.\n\n<code>\n{code}\n</code>\nContext: {context}"
+            f"Identify AI security vulnerabilities in this code. Be precise and concise.\n\n<code>\n{code}\n</code>\nContext: {context}"
         )
         
         return await self._analyze_with_llm(system_prompt, user_prompt)
     
     async def analyze_config(self, config: str) -> List[VulnerabilityFinding]:
         """Analyze configuration for AI security vulnerabilities using the base model"""
-        # Regex-based check for hardcoded OpenAI API keys
-        import json as _json
         findings = []
-        try:
-            config_dict = _json.loads(config)
-            api_key = config_dict.get("api_key", "")
-            import re
-            if isinstance(api_key, str) and re.match(r"^sk-[a-zA-Z0-9]{20,}$", api_key):
-                findings.append(VulnerabilityFinding(
-                    id="api_key_hardcoded",
-                    title="Hardcoded OpenAI API Key",
-                    description="The API key is hardcoded in the configuration. Use environment variables or a secure key management system instead.",
-                    severity="HIGH",
-                    category="API_SECURITY",
-                    code_snippets=[f'"api_key": "{api_key}"'],
-                    recommendation="Store API keys in environment variables or a secure key vault. Never hardcode secrets in config files.",
-                    confidence=1.0
-                ))
-        except Exception:
-            pass  # If config is not valid JSON, skip static check
+        
         system_prompt = (
-            "You are an expert AI security auditor. Review the following configuration for any possible, theoretical, or even minor AI security vulnerabilities. "
-            "Consider insecure model settings, overly permissive parameters, missing rate limits, insecure API keys, or any other risk. "
-            "Use your full reasoning and creativity. Err on the side of caution: if there is any doubt, report a potential vulnerability. "
-            "Do not flag API keys as hardcoded if the value is a variable reference (e.g., OPENAI_API_KEY, process.env.OPENAI_API_KEY, os.environ['OPENAI_API_KEY']). Only flag as hardcoded if the value starts with 'sk-' or looks like a real secret. "
-            "Respond with a JSON array of findings, and you may include a brief narrative summary before the JSON if you wish. "
-            "Each finding should include: title, description, severity, category, code_snippet, recommendation."
+            "You are an AI security auditor analyzing configuration for vulnerabilities. Respond with JSON containing an array of findings. "
+            "Each finding must include: title, description, severity (LOW/MEDIUM/HIGH/CRITICAL), category, code_snippet, recommendation. "
+            "Only report actual security issues. Ignore API keys that use environment variables. "
+            "Focus on: insecure model settings, overly permissive parameters, missing rate limits."
         )
+
         user_prompt = (
-            f"Here is a real-world configuration file from an AI-integrated application. "
-            f"Please identify and describe all possible security vulnerabilities, even if they are only potential or minor risks. "
-            f"Use your best judgment and be thorough.\n\n<config>\n{config}\n</config>"
+            f"Identify AI security vulnerabilities in this configuration. Be precise and concise.\n\n<config>\n{config}\n</config>"
         )
+        
         llm_findings = await self._analyze_with_llm(system_prompt, user_prompt)
         return findings + llm_findings
     
     async def _analyze_with_llm(self, system_prompt: str, user_prompt: str) -> List[VulnerabilityFinding]:
         """Helper method that handles the actual LLM call and parsing logic"""
         try:
-            print("\n==== SYSTEM PROMPT ====")
-            print(system_prompt)
-            print("\n==== USER PROMPT ====")
-            print(user_prompt)
-            
-            # Try with response_format first
+            # Try with response_format first (with streaming for faster response)
             try:
                 response = await self.client.chat.completions.create(
                     model=self.model,
@@ -101,9 +74,25 @@ class BaseModelAnalyzer:
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    temperature=0.3,
-                    response_format={"type": "json_object"}
+                    temperature=0.1,  # Reduced temperature for faster, more consistent responses
+                    max_tokens=2000,  # Set a reasonable limit to avoid excessive generation
+                    response_format={"type": "json_object"},
+                    stream=True  # Enable streaming for faster time-to-first-token
                 )
+                
+                # Process the stream
+                collected_messages = []
+                async for chunk in response:
+                    if hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content is not None:
+                        collected_messages.append(chunk.choices[0].delta.content)
+                response_text = "".join(collected_messages)
+                
+                # Calculate tokens for metrics (estimate based on length)
+                prompt_tokens = len(system_prompt + user_prompt) // 4
+                completion_tokens = len(response_text) // 4
+                self.token_usage["prompt_tokens"] += prompt_tokens
+                self.token_usage["completion_tokens"] += completion_tokens
+                
             except Exception as e:
                 # If json_object format fails, fall back to regular completion
                 logger.warning(f"JSON format request failed: {str(e)}. Falling back to standard format.")
@@ -113,7 +102,8 @@ class BaseModelAnalyzer:
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    temperature=0.3
+                    temperature=0.2,  # Lower temperature for faster, more consistent responses
+                    stream=False  # Disable streaming in fallback
                 )
             
             # Update token usage
@@ -121,10 +111,9 @@ class BaseModelAnalyzer:
                 self.token_usage["prompt_tokens"] += response.usage.prompt_tokens
                 self.token_usage["completion_tokens"] += response.usage.completion_tokens
             
-            response_text = response.choices[0].message.content
-            print("\n==== RAW LLM RESPONSE ====")
-            print(response_text)
-            print("========================\n")
+            # If we don't already have response_text from streaming
+            if 'response_text' not in locals():
+                response_text = response.choices[0].message.content
             
             # Try to clean up the response if it's not valid JSON
             try:
@@ -138,7 +127,6 @@ class BaseModelAnalyzer:
             
             # Parse findings
             findings = self._parse_findings(response_text)
-            print(f"Found {len(findings)} issues with base model analysis")
             
             return findings
             
@@ -155,278 +143,108 @@ class BaseModelAnalyzer:
             return []
     
     def _parse_findings(self, response_text: str) -> List[VulnerabilityFinding]:
-        """Parse LLM response into VulnerabilityFinding objects"""
+        """Parse LLM response text into structured VulnerabilityFinding objects"""
         findings = []
-        
-        # Check if response indicates no findings (common patterns)
-        no_findings_patterns = [
-            r"no .*vulnerabilities",
-            r"no .*security issues",
-            r"no .*found",
-            r"properly handles security",
-            r"secure implementation",
-            r"no .* detected"
-        ]
-        
-        # If the response indicates no findings, return an empty list
-        for pattern in no_findings_patterns:
-            if re.search(pattern, response_text, re.IGNORECASE):
-                print(f"Response indicates no security issues found")
-                return []
-        
-        # Check if we have a valid JSON response
         try:
-            # First try to parse the entire response as JSON
-            try:
-                data = json.loads(response_text)
-                if isinstance(data, dict) and "findings" in data:
-                    data = data["findings"]  # Handle {"findings": [...]} format
-                
-                # Process findings from JSON
-                if isinstance(data, list):
-                    for i, finding_data in enumerate(data):
-                        category = self._normalize_category(finding_data.get("category", "CONFIGURATION"))
-                        severity = self._normalize_severity(finding_data.get("severity", "MEDIUM"))
-                        
-                        finding = VulnerabilityFinding(
-                            id=f"finding_{i+1}",
-                            title=finding_data.get("title", "Unnamed Finding"),
-                            description=finding_data.get("description", "No description provided"),
-                            severity=severity,
-                            category=category,
-                            code_snippets=[finding_data.get("code_snippet", "No code snippet provided")],
-                            recommendation=finding_data.get("recommendation", "No recommendation provided"),
-                            confidence=float(finding_data.get("confidence", 0.5))
-                        )
-                        findings.append(finding)
-                        print(f"  - {finding.title} ({finding.severity}): {finding.confidence}")
-                    
-                    return findings
-            except json.JSONDecodeError:
-                # If the entire response is not JSON, try to extract JSON fragments
-                json_match = re.search(r'(\[.*\])', response_text, re.DOTALL)
-                if json_match:
-                    json_text = json_match.group(1)
-                    try:
-                        data = json.loads(json_text)
-                        # Process JSON array findings (same as above)
-                        for i, finding_data in enumerate(data):
-                            category = self._normalize_category(finding_data.get("category", "CONFIGURATION"))
-                            severity = self._normalize_severity(finding_data.get("severity", "MEDIUM"))
-                            
-                            finding = VulnerabilityFinding(
-                                id=f"finding_{i+1}",
-                                title=finding_data.get("title", "Unnamed Finding"),
-                                description=finding_data.get("description", "No description provided"),
-                                severity=severity,
-                                category=category,
-                                code_snippets=[finding_data.get("code_snippet", "No code snippet provided")],
-                                recommendation=finding_data.get("recommendation", "No recommendation provided"),
-                                confidence=float(finding_data.get("confidence", 0.5))
-                            )
-                            findings.append(finding)
-                            print(f"  - {finding.title} ({finding.severity}): {finding.confidence}")
-                        
-                        if findings:
-                            return findings
-                    except json.JSONDecodeError:
-                        pass  # Continue to fallback extraction
+            # Attempt to parse as JSON
+            response_data = json.loads(response_text)
             
-            # Fallback to parsing numbered list format
-            if "1." in response_text and "vulnerabilit" in response_text.lower():
-                # Extract numbered findings
-                numbers = re.findall(r'\n\s*(\d+)\.\s', response_text)
-                if numbers:
-                    # Split by numbered sections
-                    sections = re.split(r'\n\s*\d+\.\s', response_text)
-                    # First section is usually just an intro, skip it
-                    sections = sections[1:] if len(sections) > 1 else sections
+            # Handle if the response is a dict with a 'findings' key
+            if isinstance(response_data, dict) and 'findings' in response_data:
+                items = response_data['findings']
+            # Handle if the response is a list
+            elif isinstance(response_data, list):
+                items = response_data
+            else:
+                # Check if we have another place where findings might be stored
+                for key in response_data.keys():
+                    if isinstance(response_data[key], list) and len(response_data[key]) > 0:
+                        if isinstance(response_data[key][0], dict) and 'title' in response_data[key][0]:
+                            items = response_data[key]
+                            break
+                else:
+                    # No list of findings found
+                    logger.warning("No structured findings found in response")
+                    return []
                     
-                    for i, section in enumerate(sections):
-                        section = section.strip()
-                        if not section:
-                            continue
-                        
-                        # Extract title
-                        title_match = re.search(r'\*\*(.*?)\*\*', section)
-                        title = title_match.group(1) if title_match else f"Finding {i+1}"
-                        
-                        # Extract description
-                        description_pattern = r'\*\*Description\*\*:\s*(.*?)(?:\n\s*\*\*|\Z)'
-                        description_match = re.search(description_pattern, section, re.DOTALL | re.IGNORECASE)
-                        description = description_match.group(1).strip() if description_match else section[:200]
-                        
-                        # Extract severity
-                        severity_pattern = r'\*\*Severity\*\*:\s*(.*?)(?:\n\s*\*\*|\Z)'
-                        severity_match = re.search(severity_pattern, section, re.DOTALL | re.IGNORECASE)
-                        severity = severity_match.group(1).strip() if severity_match else "MEDIUM"
-                        
-                        # Extract category
-                        category_pattern = r'\*\*Category\*\*:\s*(.*?)(?:\n\s*\*\*|\Z)'
-                        category_match = re.search(category_pattern, section, re.DOTALL | re.IGNORECASE)
-                        category = category_match.group(1).strip() if category_match else "PROMPT_SECURITY"
-                        
-                        # Extract code snippet
-                        code_pattern = r'```(?:python)?\s*(.*?)\s*```'
-                        code_match = re.search(code_pattern, section, re.DOTALL)
-                        code_snippet = code_match.group(1).strip() if code_match else "No code snippet provided"
-                        
-                        # Extract recommendation
-                        recommendation_pattern = r'\*\*Recommendation\*\*:\s*(.*?)(?:\n\s*\*\*|\Z)'
-                        recommendation_match = re.search(recommendation_pattern, section, re.DOTALL | re.IGNORECASE)
-                        recommendation = recommendation_match.group(1).strip() if recommendation_match else "No recommendation provided"
-                        
-                        # Normalize
-                        normalized_category = self._normalize_category(category)
-                        normalized_severity = self._normalize_severity(severity)
-                        
-                        finding = VulnerabilityFinding(
-                            id=f"finding_{i+1}",
-                            title=title,
-                            description=description, 
-                            severity=normalized_severity,
-                            category=normalized_category,
-                            code_snippets=[code_snippet],
-                            recommendation=recommendation,
-                            confidence=0.8  # Higher confidence for well-structured findings
-                        )
-                        findings.append(finding)
-                        print(f"  - {finding.title} ({finding.severity}): {finding.confidence}")
+            # Process each finding
+            for idx, item in enumerate(items):
+                try:
+                    # Required fields with fallbacks
+                    title = item.get('title', f"Finding {idx+1}")
+                    
+                    # Fields with defaults if missing
+                    description = item.get('description', '')
+                    severity = item.get('severity', 'MEDIUM').upper()
+                    category = self._normalize_category(item.get('category', 'GENERAL'))
+                    
+                    # Extract code snippets
+                    if 'code_snippets' in item and isinstance(item['code_snippets'], list):
+                        code_snippets = item['code_snippets']
+                    elif 'code_snippet' in item:
+                        code_snippets = [item['code_snippet']]
+                    else:
+                        code_snippets = []
+                    
+                    # Extract recommendation
+                    recommendation = item.get('recommendation', 'No specific recommendation provided.')
                 
-                if findings:
-                    return findings
-            
-        except Exception as e:
-            logger.error(f"Error processing findings: {str(e)}")
-        
-        # If we got here and still have no findings, try more aggressive pattern matching
-        # This is a final fallback attempt
-        try:
-            if "vulnerability" in response_text.lower() or "security issue" in response_text.lower():
-                lines = response_text.split("\n")
-                current_finding = {}
-                
-                for line in lines:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    
-                    # Check if this is a new finding (starts with a number or has a title pattern)
-                    if re.match(r'^\d+\.', line) or "**" in line:
-                        # Save the previous finding if any
-                        if current_finding.get("title"):
-                            category = self._normalize_category(current_finding.get("category", "PROMPT_SECURITY"))
-                            severity = self._normalize_severity(current_finding.get("severity", "MEDIUM"))
-                            
-                            finding = VulnerabilityFinding(
-                                id=f"finding_{len(findings)+1}",
-                                title=current_finding.get("title", "Unnamed Finding"),
-                                description=current_finding.get("description", "No description provided"),
-                                severity=severity,
-                                category=category,
-                                code_snippets=[current_finding.get("code_snippet", "No code snippet provided")],
-                                recommendation=current_finding.get("recommendation", "No recommendation provided"),
-                                confidence=0.6  # Lower confidence for loosely structured findings
-                            )
-                            findings.append(finding)
-                        
-                        # Start a new finding
-                        current_finding = {"title": line.split(".", 1)[-1].strip()}
-                    
-                    # Check for known patterns to identify fields
-                    elif "description" in line.lower() and ":" in line:
-                        current_finding["description"] = line.split(":", 1)[-1].strip()
-                    elif "severity" in line.lower() and ":" in line:
-                        current_finding["severity"] = line.split(":", 1)[-1].strip()
-                    elif "category" in line.lower() and ":" in line:
-                        current_finding["category"] = line.split(":", 1)[-1].strip()
-                    elif "recommendation" in line.lower() and ":" in line:
-                        current_finding["recommendation"] = line.split(":", 1)[-1].strip()
-                    elif "code snippet" in line.lower() and ":" in line:
-                        current_finding["code_snippet"] = line.split(":", 1)[-1].strip()
-                
-                # Save the last finding if any
-                if current_finding.get("title"):
-                    category = self._normalize_category(current_finding.get("category", "PROMPT_SECURITY"))
-                    severity = self._normalize_severity(current_finding.get("severity", "MEDIUM"))
-                    
+                    # Create finding
                     finding = VulnerabilityFinding(
-                        id=f"finding_{len(findings)+1}",
-                        title=current_finding.get("title", "Unnamed Finding"),
-                        description=current_finding.get("description", "No description provided"),
+                        id=f"finding-{idx}",
+                        title=title,
+                        description=description,
                         severity=severity,
                         category=category,
-                        code_snippets=[current_finding.get("code_snippet", "No code snippet provided")],
-                        recommendation=current_finding.get("recommendation", "No recommendation provided"),
-                        confidence=0.6  # Lower confidence for loosely structured findings
+                        code_snippets=code_snippets,
+                        recommendation=recommendation,
+                        confidence=self._calculate_confidence(item)
                     )
                     findings.append(finding)
+                except Exception as e:
+                    logger.error(f"Error parsing finding {idx}: {str(e)}")
+            
+            return findings
         
         except Exception as e:
-            logger.error(f"Error in fallback parsing: {str(e)}")
-        
-        return findings
+            logger.error(f"Error parsing findings from response: {str(e)}")
+            return []
     
     def _normalize_category(self, category: str) -> str:
-        """Normalize category to match expected values"""
+        """Normalize category names to standard format"""
+        category = category.upper().replace(' ', '_')
+        
+        # Map to standard categories
         category_map = {
-            "api": "API_SECURITY",
-            "api_security": "API_SECURITY",
-            "api security": "API_SECURITY",
-            
-            "prompt": "PROMPT_SECURITY",
-            "prompt_security": "PROMPT_SECURITY",
-            "prompt security": "PROMPT_SECURITY",
-            "prompt injection": "PROMPT_SECURITY",
-            
-            "config": "CONFIGURATION",
-            "configuration": "CONFIGURATION",
-            "setting": "CONFIGURATION",
-            "settings": "CONFIGURATION",
-            
-            "error": "ERROR_HANDLING",
-            "error_handling": "ERROR_HANDLING",
-            "error handling": "ERROR_HANDLING",
-            "exception": "ERROR_HANDLING",
-            "exception_handling": "ERROR_HANDLING",
-            "exception handling": "ERROR_HANDLING"
+            'API': 'API_SECURITY',
+            'API_SECURITY': 'API_SECURITY',
+            'PROMPT': 'PROMPT_SECURITY',
+            'PROMPT_INJECTION': 'PROMPT_SECURITY',
+            'PROMPT_SECURITY': 'PROMPT_SECURITY',
+            'CONFIG': 'CONFIGURATION',
+            'CONFIGURATION': 'CONFIGURATION',
+            'ERROR': 'ERROR_HANDLING',
+            'ERROR_HANDLING': 'ERROR_HANDLING'
         }
         
-        # If the category is already normalized, return it
-        if category.upper() in ["API_SECURITY", "PROMPT_SECURITY", "CONFIGURATION", "ERROR_HANDLING"]:
-            return category.upper()
-        
-        # Try to match category to a known value
-        category_lower = category.lower()
+        # Try to match against map
         for key, value in category_map.items():
-            if key in category_lower:
+            if key in category:
                 return value
         
-        # Default to API_SECURITY if unknown
-        return "API_SECURITY"
+        return 'GENERAL_SECURITY'
     
-    def _normalize_severity(self, severity: str) -> str:
-        """Normalize severity to match expected values"""
-        severity_map = {
-            "critical": "CRITICAL",
-            "high": "HIGH",
-            "medium": "MEDIUM",
-            "low": "LOW",
-            "info": "LOW",
-            "informational": "LOW",
-            "warning": "MEDIUM",
-            "severe": "HIGH"
-        }
+    def _calculate_confidence(self, finding: Dict) -> float:
+        """Calculate a confidence score for the finding based on content quality"""
+        confidence = 0.8  # Default confidence
         
-        # If the severity is already normalized, return it
-        if severity.upper() in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
-            return severity.upper()
-        
-        # Try to match severity to a known value
-        severity_lower = severity.lower()
-        for key, value in severity_map.items():
-            if key in severity_lower:
-                return value
-        
-        # Default to MEDIUM if unknown
-        return "MEDIUM" 
+        # Adjust based on recommendation quality
+        if 'recommendation' in finding and len(finding.get('recommendation', '')) > 50:
+            confidence += 0.05
+            
+        # Adjust based on description quality
+        if 'description' in finding and len(finding.get('description', '')) > 100:
+            confidence += 0.05
+            
+        # Cap at 1.0
+        return min(1.0, confidence) 

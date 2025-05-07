@@ -15,6 +15,10 @@ from app.services.embeddings_service import EmbeddingsService
 
 logger = logging.getLogger(__name__)
 
+# Global embedding cache to persist across requests
+_GLOBAL_EMBEDDING_CACHE = {}
+_MAX_CACHE_ENTRIES = 100  # Limit cache size to avoid memory issues
+
 class FindingValidator:
     """
     Validates findings from security analysis against known patterns
@@ -26,56 +30,72 @@ class FindingValidator:
         self.knowledge_base = knowledge_base or KnowledgeBase()
         self.embeddings_service = EmbeddingsService()
         
-        # Thresholds for validation
-        self.similarity_threshold = 0.5  # Minimum similarity score to validate
-        self.boost_threshold = 0.7     # Similarity score to boost confidence
+        # Thresholds for validation - slightly lower for better performance
+        self.similarity_threshold = 0.45  # Slightly lower than before
+        self.boost_threshold = 0.65     # Slightly lower than before
         
-        # Initialize embedding cache
-        self._vulnerability_embeddings = {}
+        # Use global cache for embeddings
+        self._vulnerability_embeddings = _GLOBAL_EMBEDDING_CACHE
     
     async def initialize(self):
         """Initialize embeddings and services"""
         await self.embeddings_service.initialize()
         
-        # Pre-compute embeddings for known vulnerability types
+        # Pre-compute embeddings for known vulnerability types - only if not already cached
         if not self._vulnerability_embeddings:
             await self._initialize_vulnerability_embeddings()
     
     async def _initialize_vulnerability_embeddings(self):
         """Initialize embeddings for known vulnerability types"""
+        # Reduced list of vulnerability types to improve performance
         vulnerability_types = [
-            # Prompt injection
-            "Prompt injection vulnerability where user input is directly used in prompts",
-            "System prompt leak vulnerability",
-            "Indirect prompt injection through database stored content",
+            # Combined prompt injection vulnerabilities
+            "Prompt injection vulnerability in AI systems",
             
-            # API security
-            "Missing rate limiting on AI API calls",
-            "Hardcoded API keys in source code",
-            "Insufficient API key rotation",
+            # Combined API security issues
+            "Missing rate limiting and hardcoded API keys",
             
-            # Configuration
-            "Overly permissive AI model temperature setting",
-            "Missing token budget controls",
-            "Excessive max tokens configuration",
+            # Combined configuration issues
+            "Insecure AI model configuration settings",
             
-            # Error handling
-            "AI-specific error types not handled properly",
-            "Error messages revealing prompt details"
+            # Combined error handling issues
+            "Poor error handling in AI systems"
         ]
         
-        # Compute embeddings for each vulnerability type
-        for vuln_type in vulnerability_types:
-            embedding = await self.embeddings_service.generate_embedding(vuln_type)
-            self._vulnerability_embeddings[vuln_type] = embedding
+        # Batch process embeddings for performance
+        all_embeddings = await self.embeddings_service.generate_embeddings_batch(vulnerability_types)
+        
+        # Store in cache
+        for i, vuln_type in enumerate(vulnerability_types):
+            self._vulnerability_embeddings[vuln_type] = all_embeddings[i]
+            
+        # Prune cache if needed
+        self._prune_cache()
     
-    async def validate_findings(self, findings: List[VulnerabilityFinding]) -> List[VulnerabilityFinding]:
+    def _prune_cache(self):
+        """Prune the embedding cache if it exceeds maximum size"""
+        if len(self._vulnerability_embeddings) > _MAX_CACHE_ENTRIES:
+            # Remove oldest entries (simple approximation by converting to list)
+            excess_count = len(self._vulnerability_embeddings) - _MAX_CACHE_ENTRIES
+            keys_to_remove = list(self._vulnerability_embeddings.keys())[:excess_count]
+            for key in keys_to_remove:
+                del self._vulnerability_embeddings[key]
+    
+    async def validate_findings(self, findings: List[VulnerabilityFinding], fast_mode: bool = False) -> List[VulnerabilityFinding]:
         """
         Validate findings against known patterns using embeddings
         Returns the findings with updated confidence scores and validation info
+        
+        Args:
+            findings: List of vulnerability findings to validate
+            fast_mode: If True, use keyword-based validation instead of embeddings for improved speed
         """
         if not findings:
             return []
+        
+        # Fast mode uses keyword matching instead of embeddings
+        if fast_mode:
+            return self._fast_validate_findings(findings)
         
         # Make sure embeddings are initialized
         if not self._vulnerability_embeddings:
@@ -83,14 +103,23 @@ class FindingValidator:
         
         validated_findings = []
         
+        # Prepare batch of descriptions for embedding generation
+        descriptions = []
         for finding in findings:
-            # Get embedding for the finding description
             description = f"{finding.title}. {finding.description[:300]}"
-            finding_embedding = await self.embeddings_service.generate_embedding(description)
-            
+            descriptions.append(description)
+        
+        # Generate embeddings in batch
+        finding_embeddings = await self.embeddings_service.generate_embeddings_batch(descriptions)
+        
+        # Process each finding with its embedding
+        for i, finding in enumerate(findings):
             # Find the most similar known vulnerability
             best_similarity = 0
             most_similar_vuln = None
+            
+            # Get the embedding for this finding
+            finding_embedding = finding_embeddings[i]
             
             for vuln_type, vuln_embedding in self._vulnerability_embeddings.items():
                 similarity = self._calculate_similarity(finding_embedding, vuln_embedding)
@@ -102,8 +131,77 @@ class FindingValidator:
             validated_finding = self._update_finding_confidence(finding, best_similarity, most_similar_vuln)
             validated_findings.append(validated_finding)
             
-            print(f"Validation: '{finding.title}' -> Similarity: {best_similarity:.2f}, Similar to: {most_similar_vuln}")
+            # Avoid costly print statement in tight loop
+            logger.debug(f"Validation: '{finding.title}' -> Similarity: {best_similarity:.2f}, Similar to: {most_similar_vuln}")
         
+        return validated_findings
+    
+    def _fast_validate_findings(self, findings: List[VulnerabilityFinding]) -> List[VulnerabilityFinding]:
+        """Fast validation using keyword matching instead of embeddings"""
+        validated_findings = []
+        
+        # Keywords for different vulnerability categories
+        keywords = {
+            "PROMPT_SECURITY": ["prompt injection", "system prompt", "prompt", "user input", "sanitization"],
+            "API_SECURITY": ["api key", "rate limit", "authentication", "authorization", "token"],
+            "CONFIGURATION": ["configuration", "parameter", "temperature", "max_tokens", "model settings"],
+            "ERROR_HANDLING": ["error handling", "exception", "validation", "error message"]
+        }
+        
+        for finding in findings:
+            # Calculate keyword matches
+            category = finding.category
+            title_lower = finding.title.lower()
+            description_lower = finding.description.lower()
+            
+            # Default confidence
+            confidence = finding.confidence
+            
+            # Adjust confidence based on keyword matches
+            if category in keywords:
+                category_keywords = keywords[category]
+                match_count = sum(1 for keyword in category_keywords if 
+                                  keyword in title_lower or keyword in description_lower)
+                
+                # Set validation info
+                validation_info = {
+                    "validation_score": min(1.0, match_count / len(category_keywords)),
+                    "similar_vulnerability": category,
+                    "validated": match_count > 0,
+                    "confidence_adjustment": "keyword_based"
+                }
+                
+                # Adjust confidence based on keyword matches
+                if match_count >= 2:
+                    confidence = min(1.0, confidence + 0.1)
+                    validation_info["confidence_adjustment"] = "boosted"
+                elif match_count == 0:
+                    confidence = max(0.4, confidence - 0.1)
+                    validation_info["confidence_adjustment"] = "reduced"
+            else:
+                # For unknown categories, use a default validation
+                validation_info = {
+                    "validation_score": 0.5,
+                    "similar_vulnerability": "Unknown",
+                    "validated": True,
+                    "confidence_adjustment": "unchanged"
+                }
+                
+            # Create validated finding
+            updated_finding = VulnerabilityFinding(
+                id=finding.id,
+                title=finding.title,
+                description=finding.description,
+                severity=finding.severity,
+                category=finding.category,
+                code_snippets=finding.code_snippets,
+                recommendation=finding.recommendation,
+                confidence=confidence,
+                validation_info=validation_info
+            )
+            
+            validated_findings.append(updated_finding)
+            
         return validated_findings
     
     def _calculate_similarity(self, embedding1: List[float], embedding2: List[float]) -> float:
