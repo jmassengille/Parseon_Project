@@ -4,31 +4,53 @@ export type SecurityConfigField = 'token_limits' | 'rate_limiting' | 'input_vali
 export type ArchitectureField = 'overview' | 'deployment' | 'monitoring';
 
 export enum ScanMode {
-  COMPREHENSIVE = 'COMPREHENSIVE',
-  PROMPT_SECURITY = 'PROMPT_SECURITY',
-  API_SECURITY = 'API_SECURITY'
+  COMPREHENSIVE = "COMPREHENSIVE",
+  PROMPT_SECURITY = "PROMPT_SECURITY",
+  API_SECURITY = "API_SECURITY"
+}
+
+export enum RiskLevel {
+  CRITICAL = "CRITICAL",
+  HIGH = "HIGH",
+  MEDIUM = "MEDIUM",
+  LOW = "LOW"
+}
+
+export interface SecurityScore {
+  score: number;
+  findings: string[];
+  recommendations: string[];
+}
+
+export interface VulnerabilityFinding {
+  id: string;
+  title: string;
+  description: string;
+  severity: string;
+  category: string;
+  code_snippets: string[];
+  recommendation: string;
+  confidence: number;
+  validation_info?: Record<string, any>;
+  validated: boolean;
 }
 
 export interface AssessmentFormData {
-  organizationName: string;
-  projectName: string;
-  aiProvider: string;
-  implementationDetails: {
-    mainImplementation: string;
-    promptHandling: string;
-    errorHandling: string;
+  organization_name: string;
+  project_name: string;
+  ai_provider: string;
+  scan_mode: ScanMode;
+  configs?: {
+    env_file?: string;
+    json_config?: string;
+    code_snippet?: string;
   };
-  securityConfig: {
-    tokenLimits: string;
-    rateLimiting: string;
-    inputValidation: string;
+  implementation_details?: {
+    prompt_handling?: string;
+    error_handling?: string;
+    process_function?: string;
   };
-  architecture: {
-    overview: string;
-    deployment: string;
-    monitoring: string;
-  };
-  use_mock_data?: boolean;
+  architecture_description?: string;
 }
 
 // API Input type for backend communication - removed to avoid confusion
@@ -60,24 +82,23 @@ export interface CategoryScore {
 }
 
 export interface AssessmentResult {
+  id?: number;
   organization_name: string;
   project_name: string;
   timestamp: string;
   overall_score: number;
-  overall_risk_level: string;
-  vulnerabilities: Finding[];
+  overall_risk_level: RiskLevel;
+  category_scores: Record<string, SecurityScore>;
+  vulnerabilities: VulnerabilityFinding[];
   priority_actions: string[];
-  category_scores: {
-    API_SECURITY: CategoryScore;
-    PROMPT_SECURITY: CategoryScore;
-    CONFIGURATION: CategoryScore;
-    ERROR_HANDLING: CategoryScore;
-  };
   ai_model_used: string;
   token_usage: {
     prompt_tokens: number;
     completion_tokens: number;
   };
+  environment?: string;
+  data_sensitivity?: string;
+  grounding_info?: Record<string, any>;
 }
 
 // Alias for backward compatibility

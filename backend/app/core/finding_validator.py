@@ -27,8 +27,8 @@ class FindingValidator:
         self.embeddings_service = EmbeddingsService()
         
         # Thresholds for validation
-        self.similarity_threshold = 0.7  # Minimum similarity score to validate
-        self.boost_threshold = 0.85     # Similarity score to boost confidence
+        self.similarity_threshold = 0.5  # Minimum similarity score to validate
+        self.boost_threshold = 0.7     # Similarity score to boost confidence
         
         # Initialize embedding cache
         self._vulnerability_embeddings = {}

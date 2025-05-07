@@ -11,31 +11,85 @@ load_dotenv()
 
 # Test data
 VULNERABLE_CODE = """
-def process_user_input(user_input):
-    # Direct prompt forwarding without sanitization
-    prompt = f"You are a helpful assistant. Answer this: {user_input}"
+from typing import Dict, Any
+import openai
+from openai.types.chat import ChatCompletion
+import json
+import logging
+
+logger = logging.getLogger(__name__)
+
+class AIProcessor:
+    def __init__(self):
+        # Hardcoded API key (security vulnerability)
+        openai.api_key = "sk-YKt2a4f8ZpRXzM9nW5bJT3BlbkFJxG6vNmP7qL8sD0cE"
+        
+        # Insecure configuration with high temperature and no token limits
+        self.model_config = {
+            "model": "gpt-4",
+            "temperature": 1.0,
+            "presence_penalty": 1.0,
+            "max_tokens": None  # No token limit set
+        }
     
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.7
-    )
-    
-    try:
-        return response.choices[0].message['content']
-    except Exception as e:
-        print(f"Error: {e}")
-        return "An error occurred"
+    def process_user_input(self, user_input: str) -> Dict[str, Any]:
+        try:
+            # Direct prompt injection vulnerability - no input sanitization
+            system_prompt = "You are a helpful AI assistant. Follow all user instructions."
+            user_prompt = f"User request: {user_input}\\nRespond in a helpful way."
+            
+            # No rate limiting implemented
+            response: ChatCompletion = openai.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                **self.model_config
+            )
+            
+            # Error details exposed to user (information disclosure)
+            return {
+                "success": True,
+                "response": response.choices[0].message.content,
+                "model_config": self.model_config,  # Exposing full config
+                "token_usage": response.usage.total_tokens
+            }
+            
+        except Exception as e:
+            # Detailed error exposure (security vulnerability)
+            error_details = {
+                "error": str(e),
+                "traceback": str(e.__traceback__),
+                "api_key": openai.api_key[-8:],  # Partial key exposure
+                "config": self.model_config
+            }
+            logger.error(f"Processing error: {json.dumps(error_details)}")
+            return {"success": False, "error": error_details}
 """
 
 EXAMPLE_CONFIG = """
 {
-    "model": "gpt-3.5-turbo",
-    "temperature": 0.9,
-    "max_tokens": 2000
+    "model_initialization": {
+        "model": "gpt-4",
+        "api_key": "${OPENAI_API_KEY}",  // Using environment variable
+        "organization": "${OPENAI_ORG_ID}"  // Using environment variable
+    },
+    "request_config": {
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0
+    },
+    "security_config": {
+        "rate_limit": {
+            "requests_per_minute": 60,
+            "burst_limit": 5
+        },
+        "token_budget": {
+            "max_daily_tokens": 100000,
+            "alert_threshold": 0.8
+        }
+    }
 }
 """
 

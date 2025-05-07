@@ -1,5 +1,5 @@
 'use client';
-
+import { useRouter } from 'next/navigation'; // <-- for /pages directory
 import React from "react";
 import {
   Box,
@@ -16,7 +16,9 @@ import {
   CardContent,
   Tooltip,
   Badge,
-  Alert
+  Alert,
+  LinearProgress,
+  Button
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -27,7 +29,7 @@ import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import RemoveIcon from '@mui/icons-material/Remove';
 import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
-import { useRouter } from 'next/router';
+
 
 const StyledPaper = styled(Paper)(({ theme }) => ({
   padding: theme.spacing(3),
@@ -37,14 +39,18 @@ const StyledPaper = styled(Paper)(({ theme }) => ({
 const ScoreBox = styled(Box)(({ theme }) => ({
   textAlign: 'center',
   padding: theme.spacing(2),
-  borderRadius: theme.shape.borderRadius,
+  borderRadius: theme.shape.borderRadius * 2,
   backgroundColor: theme.palette.background.default,
+  boxShadow: theme.shadows[1],
+  marginBottom: theme.spacing(2),
 }));
 
 const CategoryCard = styled(Card)(({ theme }) => ({
   height: '100%',
   display: 'flex',
   flexDirection: 'column',
+  borderRadius: theme.shape.borderRadius * 2,
+  boxShadow: theme.shadows[1],
 }));
 
 const ValidationBadge = styled(Badge)(({ theme }) => ({
@@ -54,8 +60,22 @@ const ValidationBadge = styled(Badge)(({ theme }) => ({
   },
 }));
 
+const ValidationMethodologyBox = styled(Box)(({ theme }) => ({
+  border: `1.5px solid #90caf9`,
+  background: '#e3f2fd',
+  borderRadius: theme.shape.borderRadius * 2,
+  padding: theme.spacing(2),
+  display: 'flex',
+  alignItems: 'center',
+  gap: theme.spacing(1.5),
+  marginTop: theme.spacing(1.5),
+  marginBottom: theme.spacing(1.5),
+  minHeight: 40,
+}));
+
 interface AssessmentResultsProps {
   results: AssessmentResult;
+  onSubmitAnother?: () => void;
 }
 
 const severityColors = {
@@ -205,7 +225,7 @@ const AssessmentPDF = ({ results }: { results: AssessmentResult }) => (
   </Document>
 );
 
-export default function AssessmentResults({ results }: AssessmentResultsProps) {
+export default function AssessmentResults({ results, onSubmitAnother }: AssessmentResultsProps) {
   const router = useRouter();
   if (!results) return null;
 
@@ -231,150 +251,167 @@ export default function AssessmentResults({ results }: AssessmentResultsProps) {
   };
 
   return (
-    <StyledPaper sx={{ position: 'relative' }}>
-      {/* Submit Another Report Button */}
-      <button
-        className="absolute top-4 right-4 px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 transition"
-        aria-label="Submit another report"
-        onClick={() => router.push('/')}
-        style={{ zIndex: 10 }}
-      >
-        Submit Another Report
-      </button>
-      <Typography variant="h4" gutterBottom>
-        AI Security Assessment Results
-      </Typography>
-      
-      <Grid container spacing={3}>
+    <Box sx={{ background: '#fafbfc', minHeight: '100vh', py: 4 }}>
+      <Paper elevation={0} sx={{ maxWidth: 900, mx: 'auto', p: { xs: 2, md: 4 }, borderRadius: 4, border: '1.5px solid #e0e0e0', background: '#fff', position: 'relative' }}>
+        {/* Submit Another Report Button */}
+        <Box sx={{ position: 'absolute', top: 24, right: 24 }}>
+          <Button
+            variant="outlined"
+            color="primary"
+            onClick={onSubmitAnother}
+            sx={{ borderRadius: 2, fontWeight: 600, px: 3, textTransform: 'none', borderWidth: 2, '&:hover': { borderWidth: 2 } }}
+          >
+            Submit Another Report
+          </Button>
+        </Box>
+        <Typography variant="h4" gutterBottom>
+          Assessment Results
+        </Typography>
+        <Typography variant="body2" sx={{ color: '#888', mb: 2 }}>
+          {new Date(results.timestamp).toLocaleString()}
+        </Typography>
+        {/* Info Card */}
+        <Box sx={{ 
+          backgroundColor: 'rgba(25, 118, 210, 0.06)', 
+          p: 2, 
+          borderRadius: 2, 
+          mb: 3,
+          border: '1px solid',
+          borderColor: 'primary.light' 
+          }}>
+          <Typography variant="subtitle1" color="primary.main" fontWeight="500" gutterBottom>
+            Parseon AI Security Assessment
+          </Typography>
+          <Typography variant="body2" paragraph>
+            Parseon has analyzed your AI implementation using a sophisticated dual-layer approach that combines <b>advanced LLM analysis</b> with <b>embedding-based validation</b> against known AI security patterns and vulnerabilities.
+          </Typography>
+          <Typography variant="body2" sx={{ color: '#333' }}>
+            Each finding has been evaluated using our proprietary validation system, ensuring that reported vulnerabilities are backed by pattern recognition and similarity analysis against our extensive database of AI security issues.
+          </Typography>
+        </Box>
+        <Grid container spacing={3}>
         <Grid item xs={12} md={6}>
           <Typography variant="h6">Project Details</Typography>
           <Typography>Organization: {results.organization_name}</Typography>
           <Typography>Project: {results.project_name}</Typography>
-          <Typography>Assessment Date: {new Date(results.timestamp).toLocaleString()}</Typography>
-          <Typography>Model: {results.ai_model_used}</Typography>
-          <Typography>
+          <Typography variant="body2">Model: {results.ai_model_used}</Typography>
+          <Typography variant="body2">
             Tokens: {results.token_usage.prompt_tokens + results.token_usage.completion_tokens} 
             ({results.token_usage.prompt_tokens} prompt, {results.token_usage.completion_tokens} completion)
           </Typography>
         </Grid>
-        
-        <Grid item xs={12} md={6}>
-          <ScoreBox>
-            <Typography variant="h3" color={getScoreColor(results.overall_score)}>
-              {results.overall_score.toFixed(1)}
-            </Typography>
-            <Typography variant="h6">Overall Score</Typography>
-            <Chip 
-              label={`Risk Level: ${results.overall_risk_level || 'Unknown'}`}
-              color={severityColors[(results.overall_risk_level || 'LOW') as keyof typeof severityColors] || 'default'}
-              sx={{ mt: 1 }}
-            />
-          </ScoreBox>
         </Grid>
-      </Grid>
-
-      <Box sx={{ mt: 4 }}>
-        <Typography variant="h6" gutterBottom>Category Scores</Typography>
-        <Grid container spacing={2}>
-          {results.category_scores && Object.entries(results.category_scores).map(([category, score]) => (
-            <Grid item xs={12} sm={6} md={3} key={category}>
-              <CategoryCard>
-                <CardContent>
-                  <Typography variant="h6" sx={{ textTransform: 'capitalize', mb: 1 }}>
-                    {categoryLabels[category as keyof typeof categoryLabels] || category}
-                  </Typography>
-                  <Typography variant="h3" color={getScoreColor(score.score)}>
-                    {score.score.toFixed(1)}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {score.findings.length} Finding{score.findings.length !== 1 ? 's' : ''}
-                  </Typography>
-                </CardContent>
-              </CategoryCard>
+        {/* Score Section */}
+        <Box sx={{ mb: 2 }} marginTop={2}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 0.5 }}>
+            <Typography variant="h6">
+              Overall Score: {results.overall_score.toFixed(1)}/100
+            </Typography>
+          </Box>
+        </Box>
+        
+        {/* Category Scores */}
+        <Typography variant="h6">Security Score Breakdown</Typography>
+        <Grid container spacing={2} sx={{ mb: 2 }}>
+          {results.category_scores && Object.entries(results.category_scores).map(([category, score], idx) => (
+            <Grid item xs={12} sm={6} key={category}>
+              <Box sx={{ mb: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                  <Typography variant="subtitle1">{categoryLabels[category as keyof typeof categoryLabels] || category}</Typography>
+                  <Typography variant="body1">{score.score.toFixed(1)}%</Typography>
+                </Box>
+                <LinearProgress
+                  variant="determinate"
+                  value={score.score}
+                  sx={{
+                    height: 10,
+                    borderRadius: 5,
+                    backgroundColor: '#e0e0e0',
+                    '& .MuiLinearProgress-bar': {
+                      backgroundColor: '#388e3c',
+                    },
+                  }}
+                />
+              </Box>
             </Grid>
           ))}
         </Grid>
-      </Box>
-
-      <Box sx={{ mt: 4 }}>
-        <Typography variant="h6" gutterBottom>Priority Actions</Typography>
-        <List>
-          {results.priority_actions && results.priority_actions.map((action, index) => (
-            <ListItem key={index}>
-              <ListItemText primary={action} />
-            </ListItem>
-          ))}
-        </List>
-      </Box>
-
-      <Box sx={{ mt: 4 }}>
-        <Typography variant="h6" gutterBottom>Vulnerabilities</Typography>
-        <List>
-          {results.vulnerabilities && results.vulnerabilities.map((finding, index) => (
-            <React.Fragment key={index}>
-              <ListItem alignItems="flex-start">
-                <ListItemText
-                  primary={
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <ValidationBadge
-                        badgeContent={
-                          finding.validation_info?.validated ? 
-                            <Tooltip title="Validated against known patterns">
-                              <CheckCircleIcon fontSize="small" color="success" />
-                            </Tooltip> : 
-                            <Tooltip title="Not validated against known patterns">
-                              <HelpOutlineIcon fontSize="small" color="action" />
-                            </Tooltip>
-                        }
-                      >
-                        <Typography variant="subtitle1">{finding.title}</Typography>
-                      </ValidationBadge>
-                      <Chip 
-                        label={finding.severity || 'Unknown'}
-                        color={severityColors[(finding.severity || 'LOW') as keyof typeof severityColors] || 'default'}
-                        size="small"
-                      />
-                      <Chip 
-                        label={categoryLabels[(finding.category || 'CONFIGURATION') as keyof typeof categoryLabels] || finding.category || 'Other'}
-                        variant="outlined"
-                        size="small"
-                      />
-                    </Box>
-                  }
-                  secondary={
-                    <>
-                      <Typography component="span" variant="body2" color="text.primary">
-                        {finding.description}
-                      </Typography>
-                      {finding.validation_info && (
-                        <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <VerifiedIcon fontSize="small" color={finding.validation_info.validated ? "success" : "disabled"} />
-                          <Typography variant="body2" color="text.secondary">
-                            {finding.validation_info.validated ? 'Validated' : 'Unverified'}
-                            {finding.validation_info.similar_vulnerability && 
-                              ` • Similar to: ${finding.validation_info.similar_vulnerability}`}
-                          </Typography>
-                        </Box>
-                      )}
-                      <Typography variant="body2" sx={{ mt: 1 }}>
-                        <strong>Recommendation:</strong> {finding.recommendation}
-                      </Typography>
-                      {finding.code_snippets && finding.code_snippets.length > 0 && (
-                        <Box sx={{ mt: 1, p: 1, backgroundColor: 'grey.100', borderRadius: 1 }}>
-                          <Typography variant="body2" component="pre" sx={{ overflow: 'auto', whiteSpace: 'pre-wrap' }}>
-                            {finding.code_snippets[0]}
-                          </Typography>
-                        </Box>
-                      )}
-                    </>
-                  }
+        {/* Validation Methodology */}
+        <Typography variant="h6">Validation Methodology</Typography>
+        <Paper elevation={0} sx={{ border: '2px solid #e0e0e0', borderRadius: 3, p: 3, mb: 4, background: '#fff' }}>
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <Typography variant="body1" fontWeight={500} color="primary.main">Two-Layer Analysis</Typography>
+              <Typography variant="body2" sx={{ fontSize: '0.85rem' }}>
+                This assessment uses a two-step approach: first, broad pattern detection is applied to identify common AI security issues. Then, each finding is validated against a curated database of known vulnerabilities for higher accuracy.
+              </Typography>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Typography variant="body1" fontWeight={500} color="primary.main">Embedding-Based Validation</Typography>
+              <Typography variant="body2" sx={{ fontSize: '0.85rem' }}>
+                Semantic similarity techniques are used to compare findings with established security patterns, helping to reduce false positives and highlight relevant risks in your AI implementation.
+              </Typography>
+            </Grid>
+            <Grid item xs={12}>
+              <Box sx={{ display: 'flex', gap: 3, mt: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <CheckCircleIcon sx={{ color: '#388e3c', fontSize: 20 }} />
+                  <Typography variant="body2" sx={{ color: '#388e3c', fontWeight: 400 }}>Validated Finding</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <HelpOutlineIcon sx={{ color: '#FFA500', fontSize: 20 }} />
+                  <Typography variant="body2" sx={{ color: '#FFA500', fontWeight: 400 }}>Unverified Finding</Typography>
+                </Box>
+              </Box>
+            </Grid>
+          </Grid>
+        </Paper>
+        {/* Findings Section */}
+        <Typography variant="h6" gutterBottom>Findings</Typography>
+        {results.vulnerabilities && results.vulnerabilities.map((finding, index) => (
+          <Paper key={index} elevation={0} sx={{ mb: 3, p: 2.5, border: '1.5px solid #e0e0e0', borderRadius: 3, background: '#fff' }}>
+            {/* Title Row */}
+            <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1.5, mb: 0.5 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 500, color: '#222', mr: 1 }}>
+                {finding.title}
+              </Typography>
+              
+              <Box sx={{ flex: 1 }} />
+              <Chip
+                label={finding.severity || 'Unknown'}
+                color={finding.severity === 'HIGH' ? 'error' : finding.severity === 'MEDIUM' ? 'warning' : 'default'}
+                size="small"
+                sx={{ fontWeight: 500, fontSize: 14, borderRadius: 999, px: 1, background: finding.severity === 'HIGH' ? '#ffebee' : finding.severity === 'MEDIUM' ? '#fff8e1' : '#f5f5f5', color: finding.severity === 'HIGH' ? '#b71c1c' : finding.severity === 'MEDIUM' ? '#b26a00' : '#333', border: 'none' }}
+              />
+              {finding.validation_info && (
+                <Chip
+                  icon={finding.validation_info.validated ? <CheckCircleIcon sx={{ fontSize: 18, color: '#388e3c' }} /> : <HelpOutlineIcon sx={{ fontSize: 18, color: '#ff9800' }} />}
+                  label={finding.validation_info.validated ? 'Validated' : 'Unverified'}
+                  size="small"
+                  sx={{
+                    fontWeight: 500,
+                    fontSize: 14,
+                    borderRadius: 999,
+                    px: 1,
+                    background: finding.validation_info.validated ? '#e8f5e9' : '#fff3e0',
+                    color: finding.validation_info.validated ? '#388e3c' : '#ff9800',
+                    border: 'none',
+                    ml: 1
+                  }}
                 />
-              </ListItem>
-              {index < results.vulnerabilities.length - 1 && <Divider />}
-            </React.Fragment>
-          ))}
-        </List>
-      </Box>
-    </StyledPaper>
+              )}
+            </Box>
+            {/* Description */}
+            <Typography variant="body2">
+              Description: {finding.description}
+            </Typography>
+            {/* Recommendation */}
+            <Typography variant="body2">
+              <span style={{ fontWeight: 500 }}>Recommendation:</span> {finding.recommendation}
+            </Typography>
+          </Paper>
+        ))}
+      </Paper>
+    </Box>
   );
 } 
