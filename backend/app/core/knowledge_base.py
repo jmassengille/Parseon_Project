@@ -474,4 +474,5 @@ class KnowledgeBase:
             ref_lines = ref_section.group(2).strip().split('\n')
             references = [ref.strip('* ') for ref in ref_lines if ref.strip()]
         
-        return references or [f"Source: {section.split('\n')[0].strip('# ')}"] 
+        first_line = section.split('\n')[0].strip('# ')
+        return references or [f"Source: {first_line}"] 
