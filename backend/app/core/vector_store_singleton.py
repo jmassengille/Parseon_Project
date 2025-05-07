@@ -13,7 +13,7 @@ async def init_vector_store():
     
     try:
         # Initialize Vector Store
-        vector_store = VectorStore(url=settings.QDRANT_URL)
+        vector_store = VectorStore(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY)
         logger.info("VectorStore initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing vector store: {str(e)}")

@@ -42,3 +42,6 @@ sentry-sdk>=1.14.0
 fastapi_limiter
 qdrant_client
 pydantic-settings
+
+# Added sentence-transformers
+sentence-transformers

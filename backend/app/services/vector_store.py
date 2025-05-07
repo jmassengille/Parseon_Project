@@ -20,18 +20,23 @@ class VectorStore:
     COLLECTION_NAME = "security_assessments"
     VECTOR_SIZE = 384  # Size of all-MiniLM-L6-v2 embeddings
     
-    def __init__(self, url: str = None, host: str = "localhost", port: int = 6333):
+    def __init__(self, url: str = None, host: str = "localhost", port: int = 6333, api_key: str = None):
         """
         Initialize the vector store with Qdrant client.
         Args:
             url: Full Qdrant server URL (preferred for cloud)
             host: Qdrant server host (for local)
             port: Qdrant server port (for local)
+            api_key: Qdrant API key (for cloud)
         """
         try:
             if url:
-                self.client = QdrantClient(url=url)
-                logger.info(f"Initialized vector store with Qdrant at {url}")
+                if api_key:
+                    self.client = QdrantClient(url=url, api_key=api_key)
+                    logger.info(f"Initialized vector store with Qdrant at {url} using API key")
+                else:
+                    self.client = QdrantClient(url=url)
+                    logger.info(f"Initialized vector store with Qdrant at {url}")
             else:
                 self.client = QdrantClient(host=host, port=port)
                 logger.info(f"Initialized vector store with Qdrant at {host}:{port}")
