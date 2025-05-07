@@ -164,7 +164,7 @@ export default function AssessmentForm({ onSubmit, loading = false }: Assessment
     reset(example);
   };
 
-  return (
+        return (
     <>
       <Card sx={{ maxWidth: '1000px', margin: '0 auto', mb: 4, boxShadow: 5, borderRadius: 3, p: { xs: 2, md: 4 }, background: '#fff' }}>
         <CardContent sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 2 }}>
@@ -206,7 +206,7 @@ export default function AssessmentForm({ onSubmit, loading = false }: Assessment
           </Box>
           <form onSubmit={handleSubmit(onFormSubmit)}>
             <Grid container spacing={3}>
-              {/* Project Info */}
+        {/* Project Info */}
               <Grid item xs={12}>
                 <Typography variant="h6" gutterBottom sx={{ mt: 2, mb: 3, color: 'text.primary', fontWeight: 500 }}>
                   Project Info
@@ -214,10 +214,10 @@ export default function AssessmentForm({ onSubmit, loading = false }: Assessment
               </Grid>
               
               <Grid item xs={12} md={6}>
-                <Controller
-                  name="organization_name"
-                  control={control}
-                  render={({ field }) => (
+            <Controller
+                name="organization_name"
+              control={control}
+              render={({ field }) => (
                     <TextField
                       {...field}
                       variant="outlined"
@@ -234,10 +234,10 @@ export default function AssessmentForm({ onSubmit, loading = false }: Assessment
               </Grid>
               
               <Grid item xs={12} md={6}>
-                <Controller
-                  name="project_name"
-                  control={control}
-                  render={({ field }) => (
+            <Controller
+                name="project_name"
+              control={control}
+              render={({ field }) => (
                     <TextField
                       {...field}
                       variant="outlined"
@@ -254,10 +254,10 @@ export default function AssessmentForm({ onSubmit, loading = false }: Assessment
               </Grid>
               
               <Grid item xs={12} md={6}>
-                <Controller
-                  name="ai_provider"
-                  control={control}
-                  render={({ field }) => (
+            <Controller
+                name="ai_provider"
+              control={control}
+              render={({ field }) => (
                     <TextField
                       {...field}
                       variant="outlined"
@@ -281,10 +281,10 @@ export default function AssessmentForm({ onSubmit, loading = false }: Assessment
               </Grid>
               
               <Grid item xs={12}>
-                <Controller
+            <Controller
                   name="implementation_details.prompt_handling"
-                  control={control}
-                  render={({ field }) => (
+              control={control}
+              render={({ field }) => (
                     <TextField
                       {...field}
                       variant="outlined"
@@ -303,10 +303,10 @@ export default function AssessmentForm({ onSubmit, loading = false }: Assessment
               </Grid>
               
               <Grid item xs={12}>
-                <Controller
+            <Controller
                   name="implementation_details.error_handling"
-                  control={control}
-                  render={({ field }) => (
+              control={control}
+              render={({ field }) => (
                     <TextField
                       {...field}
                       variant="outlined"
@@ -332,10 +332,10 @@ export default function AssessmentForm({ onSubmit, loading = false }: Assessment
               </Grid>
               
               <Grid item xs={12}>
-                <Controller
-                  name="configs.json_config"
-                  control={control}
-                  render={({ field }) => (
+            <Controller
+            name="configs.json_config"
+              control={control}
+              render={({ field }) => (
                     <TextField
                       {...field}
                       variant="outlined"
@@ -361,10 +361,10 @@ export default function AssessmentForm({ onSubmit, loading = false }: Assessment
               </Grid>
               
               <Grid item xs={12}>
-                <Controller
-                  name="architecture_description"
-                  control={control}
-                  render={({ field }) => (
+            <Controller
+            name="architecture_description"
+              control={control}
+              render={({ field }) => (
                     <TextField
                       {...field}
                       variant="outlined"
@@ -401,7 +401,7 @@ export default function AssessmentForm({ onSubmit, loading = false }: Assessment
                 </Button>
               </Grid>
             </Grid>
-          </form>
+        </form>
         </Paper>
       </StyledPaper>
     </>

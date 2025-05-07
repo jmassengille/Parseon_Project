@@ -116,45 +116,26 @@ async def assess_security(
     3. Stores the assessment results in the database and vector store
     4. Returns the complete assessment result
     """
-    if not is_db_configured():
-        logger.warning("Database is not configured. /assess endpoint is unavailable.")
-        raise HTTPException(status_code=503, detail="Database is not configured. This endpoint is unavailable.")
-    from app.db.session import get_db
-    from sqlalchemy.orm import Session
     from app.services.assessment_service import SecurityAssessmentService
-    from app.crud.assessment import AssessmentCRUD
-    db: Session = next(get_db())
-    try:
-        # Initialize the assessment service
-        service = SecurityAssessmentService()
-        await service.initialize()
-        
-        # Perform the assessment
-        result = await service.analyze_input(input_data)
-        
-        # Store the assessment result in the background
+    service = SecurityAssessmentService()
+    await service.initialize()
+    result = await service.analyze_input(input_data)
+    transformed_result = _transform_assessment_result(result)
+    if is_db_configured():
+        from app.db.session import get_db
+        from sqlalchemy.orm import Session
+        from app.crud.assessment import AssessmentCRUD
+        db: Session = next(get_db())
         background_tasks.add_task(
             store_assessment_result,
             db=db,
             result=result,
             vector_store=vector_store
         )
-        
-        # Transform result to frontend format
-        transformed_result = _transform_assessment_result(result)
-        
-        logger.info(f"Assessment completed for {input_data.organization_name}/{input_data.project_name}")
-        return transformed_result
-        
-    except ValidationError as e:
-        logger.error(f"Validation error in assess_security: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
-    except AssessmentError as e:
-        logger.error(f"Assessment error in assess_security: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-    except Exception as e:
-        logger.error(f"Unexpected error in assess_security: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="An unexpected error occurred during assessment")
+        logger.info(f"Assessment completed and stored for {input_data.organization_name}/{input_data.project_name}")
+    else:
+        logger.warning("Database is not configured. Assessment result will not be stored.")
+    return transformed_result
 
 @router.get("/assessments/{assessment_id}", response_model=Dict[str, Any])
 async def get_assessment(
