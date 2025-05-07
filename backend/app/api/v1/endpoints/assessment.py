@@ -159,10 +159,13 @@ async def assess_security(
 @router.get("/assessments/{assessment_id}", response_model=Dict[str, Any])
 async def get_assessment(
     assessment_id: int,
-    db: Session = Depends(get_db),
-    _: None = rate_limit(requests=30, period=60)  # 30 requests per minute for retrieval
 ):
-    """Get a specific assessment result by ID. Rate limited to 30 requests per minute."""
+    if not is_db_configured():
+        raise HTTPException(status_code=503, detail="Database is not configured. This endpoint is unavailable.")
+    from app.db.session import get_db
+    from sqlalchemy.orm import Session
+    from app.crud.assessment import AssessmentCRUD
+    db: Session = next(get_db())
     try:
         assessment = await AssessmentCRUD.get_assessment(db, assessment_id)
         if not assessment:
@@ -177,10 +180,13 @@ async def get_organization_assessments(
     organization_name: str,
     skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(get_db),
-    _: None = rate_limit(requests=20, period=60)  # 20 requests per minute for organization listings
 ):
-    """Get all assessments for an organization. Rate limited to 20 requests per minute."""
+    if not is_db_configured():
+        raise HTTPException(status_code=503, detail="Database is not configured. This endpoint is unavailable.")
+    from app.db.session import get_db
+    from sqlalchemy.orm import Session
+    from app.crud.assessment import AssessmentCRUD
+    db: Session = next(get_db())
     try:
         assessments = await AssessmentCRUD.get_assessments_by_org(
             db,
@@ -198,10 +204,13 @@ async def get_project_assessments(
     project_name: str,
     skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(get_db),
-    _: None = rate_limit(requests=20, period=60)  # 20 requests per minute for project listings
 ):
-    """Get all assessments for a project. Rate limited to 20 requests per minute."""
+    if not is_db_configured():
+        raise HTTPException(status_code=503, detail="Database is not configured. This endpoint is unavailable.")
+    from app.db.session import get_db
+    from sqlalchemy.orm import Session
+    from app.crud.assessment import AssessmentCRUD
+    db: Session = next(get_db())
     try:
         assessments = await AssessmentCRUD.get_assessments_by_project(
             db,
