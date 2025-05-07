@@ -21,7 +21,6 @@ from pydantic import ValidationError
 import re
 from sqlalchemy.orm import Session
 from app.services.embeddings_service import EmbeddingsService
-from app.crud.assessment import AssessmentCRUD
 from app.services.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)

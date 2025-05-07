@@ -1,7 +1,6 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.models.assessment import AssessmentRecord, VulnerabilityRecord, PriorityAction
 from app.schemas.assessment import SecurityAssessmentResult, VulnerabilityFinding
 
 class AssessmentCRUD:
@@ -9,8 +8,9 @@ class AssessmentCRUD:
     async def create_assessment(
         db: AsyncSession,
         assessment_result: SecurityAssessmentResult
-    ) -> AssessmentRecord:
+    ) -> 'AssessmentRecord':
         """Create a new assessment record with related vulnerabilities and actions"""
+        from app.models.assessment import AssessmentRecord, VulnerabilityRecord, PriorityAction
         
         # Convert category scores to JSON-serializable format
         category_scores = {
@@ -64,8 +64,9 @@ class AssessmentCRUD:
     async def get_assessment(
         db: AsyncSession,
         assessment_id: int
-    ) -> Optional[AssessmentRecord]:
+    ) -> 'Optional[AssessmentRecord]':
         """Get an assessment record by ID"""
+        from app.models.assessment import AssessmentRecord
         result = await db.execute(
             select(AssessmentRecord).filter(AssessmentRecord.id == assessment_id)
         )
@@ -77,8 +78,9 @@ class AssessmentCRUD:
         organization_name: str,
         skip: int = 0,
         limit: int = 100
-    ) -> List[AssessmentRecord]:
+    ) -> 'List[AssessmentRecord]':
         """Get all assessment records for an organization"""
+        from app.models.assessment import AssessmentRecord
         result = await db.execute(
             select(AssessmentRecord)
             .filter(AssessmentRecord.organization_name == organization_name)
@@ -93,8 +95,9 @@ class AssessmentCRUD:
         project_name: str,
         skip: int = 0,
         limit: int = 100
-    ) -> List[AssessmentRecord]:
+    ) -> 'List[AssessmentRecord]':
         """Get all assessment records for a project"""
+        from app.models.assessment import AssessmentRecord
         result = await db.execute(
             select(AssessmentRecord)
             .filter(AssessmentRecord.project_name == project_name)
@@ -108,8 +111,9 @@ class AssessmentCRUD:
         db: AsyncSession,
         assessment_id: int,
         updates: Dict[str, Any]
-    ) -> Optional[AssessmentRecord]:
+    ) -> 'Optional[AssessmentRecord]':
         """Update specific fields of an assessment record"""
+        from app.models.assessment import AssessmentRecord
         result = await db.execute(
             select(AssessmentRecord).filter(AssessmentRecord.id == assessment_id)
         )
@@ -131,6 +135,7 @@ class AssessmentCRUD:
         assessment_id: int
     ) -> bool:
         """Delete an assessment record and its related records"""
+        from app.models.assessment import AssessmentRecord
         result = await db.execute(
             select(AssessmentRecord).filter(AssessmentRecord.id == assessment_id)
         )
