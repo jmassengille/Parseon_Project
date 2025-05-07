@@ -5,6 +5,7 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import Navbar from '@/components/Navbar';
 import "./globals.css";
+import { Analytics } from '@vercel/analytics/react';
 
 const inter = Inter({ subsets: ['latin'] });
 const plusJakarta = Plus_Jakarta_Sans({ 
@@ -125,6 +126,7 @@ export default function RootLayout({
           <main className="min-h-screen bg-white pt-[72px] antialiased">
             {children}
           </main>
+          <Analytics />
         </ThemeProvider>
       </body>
     </html>
