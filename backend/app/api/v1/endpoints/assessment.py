@@ -6,7 +6,7 @@ from app.services.assessment_service import SecurityAssessmentService
 from app.crud.assessment import AssessmentCRUD
 from app.db.session import get_db, is_db_configured
 from app.core.exceptions import AssessmentError, ValidationError
-from app.core.rate_limiter import rate_limit
+from app.core.rate_limiter import rate_limit, is_redis_configured
 from app.core.config import settings
 from app.core.vector_store_singleton import get_vector_store
 from app.services.vector_store import VectorStore
@@ -103,7 +103,7 @@ async def assess_security(
     input_data: SecurityAssessmentInput,
     background_tasks: BackgroundTasks,
     vector_store: VectorStore = Depends(get_vector_store),
-    _: None = rate_limit(requests=5, period=60) if settings.ENVIRONMENT == "production" else None
+    _: None = rate_limit(requests=5, period=60) if settings.ENVIRONMENT == "production" and is_redis_configured() else None
 ):
     """
     Perform a security assessment of AI implementation and store results.
@@ -159,6 +159,7 @@ async def assess_security(
 @router.get("/assessments/{assessment_id}", response_model=Dict[str, Any])
 async def get_assessment(
     assessment_id: int,
+    _: None = rate_limit(requests=30, period=60) if is_redis_configured() else None  # 30 requests per minute for retrieval
 ):
     if not is_db_configured():
         raise HTTPException(status_code=503, detail="Database is not configured. This endpoint is unavailable.")
@@ -180,6 +181,7 @@ async def get_organization_assessments(
     organization_name: str,
     skip: int = 0,
     limit: int = 100,
+    _: None = rate_limit(requests=20, period=60) if is_redis_configured() else None  # 20 requests per minute for organization listings
 ):
     if not is_db_configured():
         raise HTTPException(status_code=503, detail="Database is not configured. This endpoint is unavailable.")
@@ -204,6 +206,7 @@ async def get_project_assessments(
     project_name: str,
     skip: int = 0,
     limit: int = 100,
+    _: None = rate_limit(requests=20, period=60) if is_redis_configured() else None  # 20 requests per minute for project listings
 ):
     if not is_db_configured():
         raise HTTPException(status_code=503, detail="Database is not configured. This endpoint is unavailable.")
@@ -227,7 +230,7 @@ async def get_project_assessments(
 async def search_similar_findings(
     query: Dict[str, str],
     vector_store: VectorStore = Depends(get_vector_store),
-    _: None = rate_limit(requests=20, period=60)  # 20 requests per minute
+    _: None = rate_limit(requests=20, period=60) if is_redis_configured() else None  # 20 requests per minute
 ):
     """
     Search for similar security findings using semantic search.

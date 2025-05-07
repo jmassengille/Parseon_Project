@@ -4,6 +4,7 @@ import redis.asyncio as redis
 from app.core.config import settings
 import logging
 from fastapi import Depends
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,9 @@ async def init_rate_limiter():
         if settings.ENVIRONMENT == "production":
             raise
         logger.warning("Continuing without rate limiter in development mode")
+
+def is_redis_configured():
+    return bool(os.getenv("REDIS_URL"))
 
 # Rate limit decorators
 def rate_limit(requests: int = 60, period: int = 60):
