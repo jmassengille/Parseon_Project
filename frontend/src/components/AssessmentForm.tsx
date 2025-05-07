@@ -402,6 +402,12 @@ export default function AssessmentForm({ onSubmit, loading = false }: Assessment
               </Grid>
             </Grid>
           </form>
+          {loading && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mt: 4 }}>
+              <CircularProgress size={32} color="primary" aria-label="Loading" />
+              <Typography sx={{ ml: 2, color: 'text.secondary' }}>Processing your assessment…</Typography>
+            </Box>
+          )}
         </Paper>
       </StyledPaper>
     </>

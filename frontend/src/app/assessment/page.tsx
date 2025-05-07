@@ -39,6 +39,7 @@ export default function AssessmentPage() {
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
+      {loading && <LinearProgress sx={{ mb: 2 }} />}
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}

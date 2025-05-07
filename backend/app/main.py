@@ -34,7 +34,8 @@ if ENV == "production":
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
-            "https://parseon.tech"
+            "https://parseon.tech",
+            "https://www.parseon.tech"
         ],
         allow_credentials=True,
         allow_methods=["*"],
