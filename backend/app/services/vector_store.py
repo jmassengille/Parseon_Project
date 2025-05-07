@@ -20,18 +20,22 @@ class VectorStore:
     COLLECTION_NAME = "security_assessments"
     VECTOR_SIZE = 384  # Size of all-MiniLM-L6-v2 embeddings
     
-    def __init__(self, host: str = "localhost", port: int = 6333):
+    def __init__(self, url: str = None, host: str = "localhost", port: int = 6333):
         """
         Initialize the vector store with Qdrant client.
-        
         Args:
-            host: Qdrant server host
-            port: Qdrant server port
+            url: Full Qdrant server URL (preferred for cloud)
+            host: Qdrant server host (for local)
+            port: Qdrant server port (for local)
         """
         try:
-            self.client = QdrantClient(host=host, port=port)
+            if url:
+                self.client = QdrantClient(url=url)
+                logger.info(f"Initialized vector store with Qdrant at {url}")
+            else:
+                self.client = QdrantClient(host=host, port=port)
+                logger.info(f"Initialized vector store with Qdrant at {host}:{port}")
             self._ensure_collection_exists()
-            logger.info(f"Initialized vector store with Qdrant at {host}:{port}")
         except Exception as e:
             logger.error(f"Failed to initialize vector store: {str(e)}")
             raise

@@ -13,9 +13,7 @@ async def init_vector_store():
     
     try:
         # Initialize Vector Store
-        host = settings.QDRANT_URL.replace("http://", "").split(":")[0]
-        port = int(settings.QDRANT_URL.split(":")[-1])
-        vector_store = VectorStore(host=host, port=port)
+        vector_store = VectorStore(url=settings.QDRANT_URL)
         logger.info("VectorStore initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing vector store: {str(e)}")

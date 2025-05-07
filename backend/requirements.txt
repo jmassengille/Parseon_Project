@@ -23,6 +23,9 @@ httpx>=0.23.0
 
 # Web and API
 aiohttp>=3.8.0
+xmltodict
+PyYAML
+python-slugify
 
 # Security
 cryptography>=36.0.0
