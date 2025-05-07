@@ -4,7 +4,7 @@ from app.schemas.assessment_input import SecurityAssessmentInput
 from app.schemas.assessment import SecurityAssessmentResult, SecurityScore
 from app.services.assessment_service import SecurityAssessmentService
 from app.crud.assessment import AssessmentCRUD
-from app.db.session import get_db
+from app.db.session import get_db, is_db_configured
 from app.core.exceptions import AssessmentError, ValidationError
 from app.core.rate_limiter import rate_limit
 from app.core.config import settings
@@ -102,7 +102,6 @@ def _transform_assessment_result(result: SecurityAssessmentResult) -> Dict[str, 
 async def assess_security(
     input_data: SecurityAssessmentInput,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
     vector_store: VectorStore = Depends(get_vector_store),
     _: None = rate_limit(requests=5, period=60) if settings.ENVIRONMENT == "production" else None
 ):
@@ -117,6 +116,14 @@ async def assess_security(
     3. Stores the assessment results in the database and vector store
     4. Returns the complete assessment result
     """
+    if not is_db_configured():
+        logger.warning("Database is not configured. /assess endpoint is unavailable.")
+        raise HTTPException(status_code=503, detail="Database is not configured. This endpoint is unavailable.")
+    from app.db.session import get_db
+    from sqlalchemy.orm import Session
+    from app.services.assessment_service import SecurityAssessmentService
+    from app.crud.assessment import AssessmentCRUD
+    db: Session = next(get_db())
     try:
         # Initialize the assessment service
         service = SecurityAssessmentService()
