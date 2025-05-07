@@ -5,7 +5,7 @@ from app.core.config import settings
 
 router = APIRouter()
 
-@router.get("")  # Root path for the health router
+@router.get("/")  # Root path for the health router
 async def health_root(db: Session = Depends(get_db)):
     """
     Health check endpoint for Railway deployment at /api/v1/health
